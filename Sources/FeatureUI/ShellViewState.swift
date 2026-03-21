@@ -6,6 +6,7 @@
 // local UI state optimistically. Incoming XPC events reconcile truth.
 
 import Foundation
+import IOSurface
 import SwiftUI
 import RoutingDomain
 import RoomControlXPCContracts
@@ -146,6 +147,12 @@ public final class ShellViewState: ObservableObject {
     @Published public var currentTransitionKind: TransitionKind = .cut
     @Published public var meterSnapshots: [String: MeterSnapshot] = [:]
     @Published public var healthSnapshot: AgentHealthSnapshot?
+
+    /// Render feeds for IOSurface thumbnails, keyed by sourceID.
+    /// Each slot cell looks up its render feed by sourceID.
+    public private(set) var thumbnailFeeds: [String: OutputTileRenderFeed] = [:]
+    /// Monotonic sequence counter for thumbnail updates — triggers SwiftUI refresh.
+    @Published public var thumbnailSequence: UInt64 = 0
 
     /// The XPC client for communicating with BETRCoreAgent.
     /// Injected at app startup via `bind(coreAgent:capacitySampler:)`.
@@ -310,7 +317,17 @@ public final class ShellViewState: ObservableObject {
     }
 
     private func updateThumbnail(sourceID: String, surfaceID: UInt32, width: Int, height: Int) {
-        // IOSurface thumbnail delivery — Wave 3 Task 76 will wire to OutputSurfaceMetalView
+        guard let surface = IOSurfaceLookup(surfaceID) else {
+            Self.log.warning("thumbnailReady: IOSurface \(surfaceID) not found for source \(sourceID)")
+            return
+        }
+        let feed = thumbnailFeeds[sourceID] ?? {
+            let newFeed = OutputTileRenderFeed()
+            thumbnailFeeds[sourceID] = newFeed
+            return newFeed
+        }()
+        thumbnailSequence &+= 1
+        feed.bind(surface: surface, sequence: thumbnailSequence)
     }
 
     private func updateProgramIndicator(sourceID: String) {
