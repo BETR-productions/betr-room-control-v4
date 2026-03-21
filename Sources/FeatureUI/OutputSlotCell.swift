@@ -1,5 +1,7 @@
 // OutputSlotCell — individual slot cell with PVW/PGM buttons.
 // 108pt min width, 112pt min height, cardBlack background, 8pt corners.
+// Full-frame-rate IOSurface thumbnail via OutputSurfaceMetalView.
+// Warm state badge ring: gold pulsing = warming, green = warm, red = failed, none = cold.
 
 import PresentationDomain
 import RoutingDomain
@@ -9,9 +11,11 @@ struct OutputSlotCell: View {
     let card: OutputCardState
     let slot: OutputSlotState
     @ObservedObject var state: ShellViewState
+    /// Emergency cold-cut confirmation: true after first tap on non-warm PGM.
+    @State private var coldCutPending = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             // Header: slot ID + state badge
             HStack {
                 Text(slot.id)
@@ -29,25 +33,23 @@ struct OutputSlotCell: View {
                 }
             }
 
-            // Source name
-            Text(slot.displayName ?? "Empty Slot")
-                .font(BrandTokens.display(size: 11, weight: .medium))
-                .foregroundStyle(
-                    slot.sourceID == nil
-                        ? BrandTokens.warmGrey
-                        : BrandTokens.offWhite.opacity(slot.isAvailable ? 1 : 0.7)
-                )
-                .lineLimit(2)
-                .frame(height: 30, alignment: .topLeading)
+            // Thumbnail area — full-frame-rate Metal rendering from IOSurface
+            thumbnailView
+                .frame(height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
 
-            // Status + warm badge
+            // Source name + warm badge
             HStack(spacing: 4) {
                 if slot.sourceID != nil {
                     warmBadgeIndicator
                 }
-                Text(statusText)
-                    .font(BrandTokens.mono(size: 8))
-                    .foregroundStyle(BrandTokens.warmGrey)
+                Text(slot.displayName ?? "Empty Slot")
+                    .font(BrandTokens.display(size: 10, weight: .medium))
+                    .foregroundStyle(
+                        slot.sourceID == nil
+                            ? BrandTokens.warmGrey
+                            : BrandTokens.offWhite.opacity(slot.isAvailable ? 1 : 0.7)
+                    )
                     .lineLimit(1)
             }
 
@@ -56,17 +58,18 @@ struct OutputSlotCell: View {
                 stateButton("PVW", active: isPreview, tint: BrandTokens.pvwRed) {
                     state.setPreviewSlot(card.id, slotID: isPreview ? nil : slot.id)
                 }
-                .disabled(!slotCanPreview)
+                .disabled(!pvwEnabled)
 
-                stateButton("PGM", active: isProgram, tint: BrandTokens.pgnGreen) {
-                    state.takeProgramSlot(card.id, slotID: slot.id)
+                stateButton(pgmButtonLabel, active: isProgram, tint: pgmButtonTint) {
+                    handlePGMTap()
                 }
-                .disabled(!slotCanSwitch)
+                .disabled(!pgmEnabled)
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
         .background(Color.white.opacity(isProgram || isPreview ? 0.06 : 0.03))
+        .overlay(warmBadgeRing)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(borderColor, lineWidth: isProgram || isPreview ? 1.2 : 1)
@@ -105,13 +108,13 @@ struct OutputSlotCell: View {
                 Button("Arm Preview") {
                     state.setPreviewSlot(card.id, slotID: slot.id)
                 }
-                .disabled(!slotCanPreview)
+                .disabled(!pvwEnabled)
             }
 
             Button("Take Program") {
                 state.takeProgramSlot(card.id, slotID: slot.id)
             }
-            .disabled(!slotCanSwitch)
+            .disabled(!pgmEnabled)
         }
     }
 
@@ -119,16 +122,43 @@ struct OutputSlotCell: View {
 
     private var isProgram: Bool { card.programSlotID == slot.id }
     private var isPreview: Bool { card.previewSlotID == slot.id }
-    private var slotCanSwitch: Bool { slot.sourceID != nil && slot.isAvailable }
-    private var slotCanPreview: Bool { slotCanSwitch && !isProgram }
+    private var hasSource: Bool { slot.sourceID != nil && slot.isAvailable }
+    private var isWarmOrWarming: Bool { slot.warmBadge == .warm || slot.warmBadge == .warming }
 
-    private var statusText: String {
-        if slot.sourceID == nil { return "No source assigned" }
-        switch slot.warmBadge {
-        case .warming: return "Warming..."
-        case .warm: return "Warm"
-        case .failed: return "Failed"
-        case .cold: return slot.isAvailable ? "Cold" : "Source unavailable"
+    /// PVW: requires source + available + not program + warm or warming.
+    /// Disabled when cold or failed — must warm before preview.
+    private var pvwEnabled: Bool { hasSource && !isProgram && isWarmOrWarming }
+
+    /// PGM normal: requires warm source. Emergency cold cut: double-tap allowed.
+    private var pgmEnabled: Bool { hasSource }
+    private var pgmIsWarm: Bool { slot.warmBadge == .warm }
+
+    private var pgmButtonLabel: String {
+        if coldCutPending { return "CONFIRM" }
+        return "PGM"
+    }
+
+    private var pgmButtonTint: Color {
+        if coldCutPending { return BrandTokens.red }
+        return BrandTokens.pgnGreen
+    }
+
+    private func handlePGMTap() {
+        if pgmIsWarm || isProgram {
+            // Normal warm cut or re-tap on current program
+            coldCutPending = false
+            state.takeProgramSlot(card.id, slotID: slot.id)
+        } else if coldCutPending {
+            // Second tap — confirmed emergency cold cut
+            coldCutPending = false
+            state.takeProgramSlot(card.id, slotID: slot.id)
+        } else {
+            // First tap on non-warm source — require confirmation
+            coldCutPending = true
+            // Auto-cancel after 3 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [self] in
+                coldCutPending = false
+            }
         }
     }
 
@@ -136,6 +166,45 @@ struct OutputSlotCell: View {
         if isProgram { return BrandTokens.pgnGreen }
         if isPreview { return BrandTokens.pvwRed }
         return BrandTokens.charcoal
+    }
+
+    // MARK: - Thumbnail
+
+    @ViewBuilder
+    private var thumbnailView: some View {
+        if let sourceID = slot.sourceID,
+           let feed = state.thumbnailFeeds[sourceID] {
+            // Access thumbnailSequence to trigger SwiftUI refresh on new frames
+            let _ = state.thumbnailSequence
+            OutputSurfaceMetalView(renderFeed: feed)
+        } else {
+            // Empty placeholder
+            Rectangle()
+                .fill(BrandTokens.cardBlack)
+                .overlay(
+                    Text(slot.sourceID == nil ? "" : "No signal")
+                        .font(BrandTokens.mono(size: 8))
+                        .foregroundStyle(BrandTokens.warmGrey.opacity(0.5))
+                )
+        }
+    }
+
+    // MARK: - Warm Badge Ring (Task 77)
+
+    @ViewBuilder
+    private var warmBadgeRing: some View {
+        switch slot.warmBadge {
+        case .warming:
+            WarmPulsingRing(color: BrandTokens.gold)
+        case .warm:
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(BrandTokens.pgnGreen, lineWidth: 2)
+        case .failed:
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(BrandTokens.red, lineWidth: 2)
+        case .cold:
+            EmptyView()
+        }
     }
 
     // MARK: - Subviews
@@ -173,6 +242,27 @@ struct OutputSlotCell: View {
             .padding(.vertical, 3)
             .background(tint)
             .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+// MARK: - Warm Pulsing Ring (gold, animated)
+
+/// Gold pulsing ring overlay for warming state.
+/// Animates opacity between 0.3 and 1.0 at ~1.2Hz.
+private struct WarmPulsingRing: View {
+    let color: Color
+    @State private var isPulsing = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(color, lineWidth: 2)
+            .opacity(isPulsing ? 1.0 : 0.3)
+            .animation(
+                .easeInOut(duration: 0.8)
+                    .repeatForever(autoreverses: true),
+                value: isPulsing
+            )
+            .onAppear { isPulsing = true }
     }
 }
 

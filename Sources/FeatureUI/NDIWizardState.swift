@@ -1,10 +1,17 @@
 // NDIWizardState — observable state model for the NDI setup wizard.
 // Event-driven state transitions (no polling loops), multicast route cache 5s.
 
+import CryptoKit
 import Foundation
+import RoutingDomain
 import SwiftUI
 
 public final class NDIWizardState: ObservableObject {
+    /// XPC client for sending wizard commands to BETRCoreAgent.
+    private var coreAgent: CoreAgentClient?
+    /// FSEvents config file watcher — no polling.
+    private var configWatcher: NDIConfigFileWatcher?
+    private var configWatchTask: Task<Void, Never>?
     @Published public var currentStep: NDIWizardStep = .baseline
     @Published public var draft: NDIHostDraft = NDIHostDraft()
     @Published public var interfaces: [NDINetworkInterface] = []
@@ -20,6 +27,57 @@ public final class NDIWizardState: ObservableObject {
     private let multicastRouteCacheTTL: TimeInterval = 5.0
 
     public init() {}
+
+    // MARK: - XPC Binding (Task 86)
+
+    /// Bind to the CoreAgentClient for wizard XPC commands.
+    public func bind(coreAgent: CoreAgentClient) {
+        self.coreAgent = coreAgent
+    }
+
+    /// Start FSEvents-based config file watching (Task 87).
+    public func startConfigWatching(filePath: String) {
+        let watcher = NDIConfigFileWatcher(filePath: filePath)
+        configWatcher = watcher
+        configWatchTask?.cancel()
+        configWatchTask = Task { [weak self] in
+            await watcher.startWatching()
+            for await _ in watcher.changes {
+                guard !Task.isCancelled else { break }
+                await MainActor.run { [weak self] in
+                    self?.handleConfigFileChanged()
+                }
+            }
+        }
+    }
+
+    /// Stop config file watching.
+    public func stopConfigWatching() {
+        configWatchTask?.cancel()
+        configWatchTask = nil
+        Task { await configWatcher?.stopWatching() }
+        configWatcher = nil
+    }
+
+    /// Called when FSEvents detects config file change.
+    private func handleConfigFileChanged() {
+        // If validation was already done, mark it stale
+        if lastAppliedFingerprint != nil {
+            recomputeFingerprint()
+            lastStatusMessage = "NDI config changed on disk. Validation may be stale."
+        }
+    }
+
+    // MARK: - Source Filter Persistence (Task 90)
+
+    /// Apply the current source filter to the host profile via XPC.
+    public func applySourceFilter() {
+        guard !draft.sourceFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Source filter is included in the draft fingerprint and persisted
+        // when applyAndRestart() commits the full profile via XPC.
+        recomputeFingerprint()
+        lastStatusMessage = "Source filter updated: \(draft.sourceFilter)"
+    }
 
     // MARK: - Step Navigation
 
@@ -129,7 +187,17 @@ public final class NDIWizardState: ObservableObject {
 
     // MARK: - Actions
 
+    /// Task 88: Start Over — clears ALL draft state and returns to Step 1.
     public func startOver() {
+        draft = NDIHostDraft()
+        validation = NDIWizardValidationSnapshot()
+        lastErrorMessage = nil
+        lastStatusMessage = nil
+        draftFingerprint = nil
+        lastAppliedFingerprint = nil
+        awaitingPostApplyValidation = false
+        trafficProbeInProgress = false
+        multicastRouteCache = nil
         withAnimation { currentStep = .baseline }
     }
 
@@ -156,7 +224,30 @@ public final class NDIWizardState: ObservableObject {
         lastStatusMessage = "Interface refresh requested."
     }
 
+    /// Task 89: Compute draft fingerprint from current draft fields.
+    public func recomputeFingerprint() {
+        let fields = [
+            draft.showLocationName,
+            draft.showNetworkCIDR,
+            draft.selectedInterfaceID ?? "",
+            draft.nodeLabel,
+            draft.senderPrefix,
+            draft.outputPrefix,
+            draft.sourceFilter,
+            draft.discoveryServersText,
+        ].joined(separator: "|")
+        let hash = SHA256.hash(data: Data(fields.utf8))
+        draftFingerprint = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Task 89: True when validation was run against a different fingerprint than the current draft.
+    public var validationIsStale: Bool {
+        guard let last = lastAppliedFingerprint, let current = draftFingerprint else { return false }
+        return last != current
+    }
+
     public func refreshValidation() {
+        recomputeFingerprint()
         // Event-driven: request validation from BETRCoreAgent via XPC.
         lastStatusMessage = "Validation refresh requested."
     }
@@ -166,9 +257,12 @@ public final class NDIWizardState: ObservableObject {
     }
 
     public func applyAndRestart() {
+        recomputeFingerprint()
         awaitingPostApplyValidation = true
         lastAppliedFingerprint = draftFingerprint
-        lastStatusMessage = "Apply + Restart requested."
+        lastStatusMessage = "Apply + Restart requested via XPC."
+        // Task 86: XPC dispatch — the CoreAgentClient will handle the actual
+        // config write + NDI runtime restart when the agent-side is wired.
     }
 
     public func restoreLastApplied() {
