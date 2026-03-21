@@ -216,6 +216,9 @@ public final class ShellViewState: ObservableObject {
         case .capacityLevelChanged(_, let activeCount, _):
             capacity.activeRx = activeCount
 
+        case .thumbnailReady(let sourceID, let surfaceID, let width, let height):
+            updateThumbnail(sourceID: sourceID, surfaceID: surfaceID, width: width, height: height)
+
         case .connectionReady:
             Self.log.info("Core agent connection ready")
             Task { await requestInitialState() }
@@ -304,6 +307,10 @@ public final class ShellViewState: ObservableObject {
                 }
             }
         }
+    }
+
+    private func updateThumbnail(sourceID: String, surfaceID: UInt32, width: Int, height: Int) {
+        // IOSurface thumbnail delivery — Wave 3 Task 76 will wire to OutputSurfaceMetalView
     }
 
     private func updateProgramIndicator(sourceID: String) {

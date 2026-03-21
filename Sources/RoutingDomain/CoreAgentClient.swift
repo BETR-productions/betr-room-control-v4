@@ -17,6 +17,7 @@ public enum CoreAgentEvent: Sendable {
     case metersUpdated([MeterSnapshot])
     case healthUpdated(AgentHealthSnapshot)
     case capacityLevelChanged(level: CapacityLevel, activeCount: Int, maxCount: Int)
+    case thumbnailReady(sourceID: String, surfaceID: UInt32, width: Int, height: Int)
     case connectionReady
     case connectionInterrupted
     case connectionInvalidated
@@ -265,5 +266,9 @@ private final class CoreAgentEventHandler: NSObject, BETRCoreXPCEvents, Sendable
             return
         }
         continuation.yield(.capacityLevelChanged(level: level, activeCount: Int(activeCount), maxCount: Int(maxCount)))
+    }
+
+    func thumbnailReady(sourceID: String, surfaceID: UInt32, width: Int32, height: Int32) {
+        continuation.yield(.thumbnailReady(sourceID: sourceID, surfaceID: surfaceID, width: Int(width), height: Int(height)))
     }
 }
