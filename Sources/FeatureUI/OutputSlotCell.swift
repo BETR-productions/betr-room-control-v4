@@ -75,6 +75,11 @@ struct OutputSlotCell: View {
                 .strokeBorder(borderColor, lineWidth: isProgram || isPreview ? 1.2 : 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .dropDestination(for: String.self) { items, _ in
+            guard let sourceID = items.first else { return false }
+            state.assignSource(sourceID, to: card.id, slotID: slot.id)
+            return true
+        }
         .contextMenu {
             ForEach(state.sources) { source in
                 Button {

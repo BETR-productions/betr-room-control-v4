@@ -40,6 +40,11 @@ public actor ClipPlayerProducer {
     private var shuffleOrder: [Int] = []
     private var shufflePosition: Int = 0
 
+    // MARK: - Per-output assignment (Task 123)
+
+    private var assignedOutputID: String?
+    private var assignedSlotID: String?
+
     // MARK: - Callbacks
 
     private let stateDidChange: (@Sendable () -> Void)?
@@ -488,17 +493,24 @@ private extension ClipPlayerProducer {
         ) { _ in }
     }
 
+    /// Set which output/slot this producer is assigned to (Task 123).
+    func setOutputAssignment(outputID: String, slotID: String) {
+        assignedOutputID = outputID
+        assignedSlotID = slotID
+    }
+
     // Task 53: Signal clip transition via setProgram with transition type.
     // Core's dissolve engine handles blend between outgoing and incoming clip frames.
     func signalClipTransition(for item: ClipItem) {
-        guard let coreCommands, let producerID else { return }
+        guard let coreCommands, let assignedOutputID, let assignedSlotID else { return }
         let config = TransitionConfig(
             kind: item.transitionKind,
             durationSeconds: item.transitionDurationSeconds
         )
         guard let transitionData = try? JSONEncoder().encode(config) else { return }
         coreCommands.setProgram(
-            sourceID: producerID,
+            outputID: assignedOutputID,
+            slotID: assignedSlotID,
             transitionData: transitionData
         ) { _, _ in }
     }

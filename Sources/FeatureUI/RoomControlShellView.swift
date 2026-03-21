@@ -54,6 +54,27 @@ public struct RoomControlShellView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             syncLayoutFromState()
+            state.ensureDefaultOutput()
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(phases: .down) { press in
+            // Shift+Tab: previous output (Task 130)
+            if press.key == .tab, press.modifiers.contains(.shift) {
+                state.focusPreviousCard()
+                return .handled
+            }
+            // Tab: next output (Task 130)
+            if press.key == .tab {
+                state.focusNextCard()
+                return .handled
+            }
+            // 1–6: select slot in focused output (Task 130)
+            if let digit = Int(String(press.characters)), digit >= 1, digit <= 6 {
+                handleSlotSelect(digit)
+                return .handled
+            }
+            return .ignored
         }
     }
 
@@ -166,36 +187,84 @@ public struct RoomControlShellView: View {
     }
 
     private var centerColumn: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                panelHeader("OUTPUTS")
-                    .padding(16)
-                ForEach(state.cards) { card in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(card.name)
-                                .font(BrandTokens.display(size: 13, weight: .semibold))
-                                .foregroundStyle(BrandTokens.offWhite)
-                            Spacer()
-                            // Audio meters for the program source on this card
-                            if let pgmSlotID = card.programSlotID,
-                               let pgmSlot = card.slots.first(where: { $0.id == pgmSlotID }) {
-                                OutputCardAudioMeter(sourceID: pgmSlot.sourceID, state: state)
-                            }
-                        }
-                        OutputSlotBank(card: card, state: state)
+        VStack(spacing: 0) {
+            // Header: title + capacity + add button (Task 122)
+            centerColumnHeader
+
+            Divider()
+                .background(BrandTokens.charcoal)
+
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(state.cards) { card in
+                        OutputCardView(
+                            card: card,
+                            state: state,
+                            isFocused: state.focusedCardID == card.id
+                        )
                     }
-                    .padding(12)
+                    if state.cards.isEmpty {
+                        centerColumnEmptyState
+                    }
                 }
-                if state.cards.isEmpty {
-                    Text("No outputs configured")
-                        .font(BrandTokens.display(size: 12))
-                        .foregroundStyle(BrandTokens.warmGrey)
-                        .padding(16)
-                }
+                .padding(12)
             }
         }
         .background(BrandTokens.dark)
+    }
+
+    // MARK: - Center Column Header (Task 122)
+
+    private var centerColumnHeader: some View {
+        HStack(spacing: 8) {
+            panelHeader("OUTPUTS")
+
+            // Capacity indicator (Task 129)
+            Text("\(state.cards.count)/\(ShellViewState.maxOutputs)")
+                .font(BrandTokens.mono(size: 10))
+                .foregroundStyle(outputCapacityColor)
+
+            Spacer()
+
+            // Add output button (Task 122)
+            Button {
+                state.addOutput()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(state.cards.count >= ShellViewState.maxOutputs)
+            .help("Add output (\(ShellViewState.maxOutputs - state.cards.count) available)")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var outputCapacityColor: Color {
+        let count = state.cards.count
+        let max = ShellViewState.maxOutputs
+        if count >= max { return BrandTokens.red }
+        if count >= Int(ceil(Double(max) * 0.8)) { return BrandTokens.gold }
+        return BrandTokens.warmGrey
+    }
+
+    private var centerColumnEmptyState: some View {
+        VStack(spacing: 8) {
+            Spacer().frame(height: 40)
+            Image(systemName: "rectangle.stack.badge.plus")
+                .font(.system(size: 28))
+                .foregroundStyle(BrandTokens.warmGrey.opacity(0.5))
+            Text("No outputs configured")
+                .font(BrandTokens.display(size: 12, weight: .medium))
+                .foregroundStyle(BrandTokens.warmGrey)
+            Text("Click + to add an output")
+                .font(BrandTokens.mono(size: 9))
+                .foregroundStyle(BrandTokens.warmGrey.opacity(0.6))
+            Spacer().frame(height: 40)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var rightColumn: some View {
@@ -239,6 +308,22 @@ public struct RoomControlShellView: View {
     }
 
     // MARK: - Helpers
+
+    // MARK: - Keyboard Shortcuts (Task 130)
+
+    /// Handle 1–6 key press: arm PVW on the corresponding slot in the focused output.
+    private func handleSlotSelect(_ index: Int) {
+        guard let cardID = state.focusedCardID,
+              let card = state.cards.first(where: { $0.id == cardID }),
+              index >= 1, index <= card.slots.count else { return }
+        let slot = card.slots[index - 1]
+        // Toggle preview on the selected slot
+        if card.previewSlotID == slot.id {
+            state.setPreviewSlot(cardID, slotID: nil)
+        } else {
+            state.setPreviewSlot(cardID, slotID: slot.id)
+        }
+    }
 
     private func panelHeader(_ title: String) -> some View {
         Text(title)

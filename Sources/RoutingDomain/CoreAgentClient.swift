@@ -12,12 +12,15 @@ import os
 public enum CoreAgentEvent: Sendable {
     case sourcesChanged([SourceDescriptor])
     case warmStateChanged(sourceID: String, state: SourceWarmState)
-    case switchCompleted(fromSourceID: String?, toSourceID: String)
-    case switchAborted(toSourceID: String, reason: String)
+    case switchCompleted(outputID: String, fromSourceID: String?, toSourceID: String)
+    case switchAborted(outputID: String, toSourceID: String, reason: String)
     case metersUpdated([MeterSnapshot])
     case healthUpdated(AgentHealthSnapshot)
     case capacityLevelChanged(level: CapacityLevel, activeCount: Int, maxCount: Int)
     case thumbnailReady(sourceID: String, surfaceID: UInt32, width: Int, height: Int)
+    case outputCreated(descriptorData: Data)
+    case outputRemoved(outputID: String)
+    case outputRenamed(outputID: String, newName: String)
     case connectionReady
     case connectionInterrupted
     case connectionInvalidated
@@ -98,10 +101,10 @@ public actor CoreAgentClient {
         } as? BETRCoreXPCCommands
     }
 
-    // MARK: - Routing Commands
+    // MARK: - Per-Output Routing Commands (Task 116)
 
-    /// Set a source as Program output with the given transition.
-    public func setProgram(sourceID: String, transition: TransitionConfig) async -> Bool {
+    /// Set a slot as Program on a specific output.
+    public func setProgram(outputID: String, slotID: String, transition: TransitionConfig) async -> Bool {
         guard let proxy else {
             Self.log.error("setProgram failed: no XPC proxy")
             return false
@@ -111,7 +114,7 @@ public actor CoreAgentClient {
             return false
         }
         return await withCheckedContinuation { continuation in
-            proxy.setProgram(sourceID: sourceID, transitionData: transitionData) { success, errorMessage in
+            proxy.setProgram(outputID: outputID, slotID: slotID, transitionData: transitionData) { success, errorMessage in
                 if let errorMessage, !success {
                     Self.log.error("setProgram failed: \(errorMessage)")
                 }
@@ -120,14 +123,109 @@ public actor CoreAgentClient {
         }
     }
 
-    /// Set a source as Preview.
-    public func setPreview(sourceID: String) async -> Bool {
+    /// Set a slot as Preview on a specific output.
+    public func setPreview(outputID: String, slotID: String) async -> Bool {
         guard let proxy else {
             Self.log.error("setPreview failed: no XPC proxy")
             return false
         }
         return await withCheckedContinuation { continuation in
-            proxy.setPreview(sourceID: sourceID) { success in
+            proxy.setPreview(outputID: outputID, slotID: slotID) { success in
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    // MARK: - Output Management Commands (Task 116)
+
+    /// Create a new output. Returns the created output descriptor data on success.
+    public func createOutput(configData: Data) async -> Data? {
+        guard let proxy else {
+            Self.log.error("createOutput failed: no XPC proxy")
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            proxy.createOutput(configData: configData) { success, responseData in
+                if !success {
+                    Self.log.error("createOutput failed")
+                }
+                continuation.resume(returning: success ? responseData : nil)
+            }
+        }
+    }
+
+    /// Remove an output by ID.
+    public func removeOutput(outputID: String) async -> Bool {
+        guard let proxy else {
+            Self.log.error("removeOutput failed: no XPC proxy")
+            return false
+        }
+        return await withCheckedContinuation { continuation in
+            proxy.removeOutput(outputID: outputID) { success, errorMessage in
+                if let errorMessage, !success {
+                    Self.log.error("removeOutput failed: \(errorMessage)")
+                }
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    /// Rename an output.
+    public func renameOutput(outputID: String, newName: String) async -> Bool {
+        guard let proxy else {
+            Self.log.error("renameOutput failed: no XPC proxy")
+            return false
+        }
+        return await withCheckedContinuation { continuation in
+            proxy.renameOutput(outputID: outputID, newName: newName) { success, errorMessage in
+                if let errorMessage, !success {
+                    Self.log.error("renameOutput failed: \(errorMessage)")
+                }
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    /// Assign a source to a slot on an output.
+    public func assignSlotSource(outputID: String, slotID: String, sourceID: String, sourceNameSnapshot: String?) async -> Bool {
+        guard let proxy else {
+            Self.log.error("assignSlotSource failed: no XPC proxy")
+            return false
+        }
+        return await withCheckedContinuation { continuation in
+            proxy.assignSlotSource(outputID: outputID, slotID: slotID, sourceID: sourceID, sourceNameSnapshot: sourceNameSnapshot) { success, errorMessage in
+                if let errorMessage, !success {
+                    Self.log.error("assignSlotSource failed: \(errorMessage)")
+                }
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    /// Clear a slot on an output.
+    public func clearSlot(outputID: String, slotID: String) async -> Bool {
+        guard let proxy else {
+            Self.log.error("clearSlot failed: no XPC proxy")
+            return false
+        }
+        return await withCheckedContinuation { continuation in
+            proxy.clearSlot(outputID: outputID, slotID: slotID) { success, errorMessage in
+                if let errorMessage, !success {
+                    Self.log.error("clearSlot failed: \(errorMessage)")
+                }
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    /// Set an output's audio muted state.
+    public func setOutputMuted(outputID: String, muted: Bool) async -> Bool {
+        guard let proxy else {
+            Self.log.error("setOutputMuted failed: no XPC proxy")
+            return false
+        }
+        return await withCheckedContinuation { continuation in
+            proxy.setOutputMuted(outputID: outputID, muted: muted) { success in
                 continuation.resume(returning: success)
             }
         }
@@ -251,13 +349,13 @@ private final class CoreAgentEventHandler: NSObject, BETRCoreXPCEvents, Sendable
         continuation.yield(.warmStateChanged(sourceID: sourceID, state: state))
     }
 
-    func switchCompleted(fromSourceID: String?, toSourceID: String) {
-        continuation.yield(.switchCompleted(fromSourceID: fromSourceID, toSourceID: toSourceID))
+    func switchCompleted(outputID: String, fromSourceID: String?, toSourceID: String) {
+        continuation.yield(.switchCompleted(outputID: outputID, fromSourceID: fromSourceID, toSourceID: toSourceID))
     }
 
-    func switchAborted(toSourceID: String, reason: String) {
-        Self.log.warning("Switch aborted to \(toSourceID): \(reason)")
-        continuation.yield(.switchAborted(toSourceID: toSourceID, reason: reason))
+    func switchAborted(outputID: String, toSourceID: String, reason: String) {
+        Self.log.warning("Switch aborted on output \(outputID) to \(toSourceID): \(reason)")
+        continuation.yield(.switchAborted(outputID: outputID, toSourceID: toSourceID, reason: reason))
     }
 
     func capacityLevelChanged(levelRawValue: String, activeCount: Int32, maxCount: Int32) {
@@ -270,5 +368,19 @@ private final class CoreAgentEventHandler: NSObject, BETRCoreXPCEvents, Sendable
 
     func thumbnailReady(sourceID: String, surfaceID: UInt32, width: Int32, height: Int32) {
         continuation.yield(.thumbnailReady(sourceID: sourceID, surfaceID: surfaceID, width: Int(width), height: Int(height)))
+    }
+
+    // MARK: - Output Lifecycle Events (Task 117)
+
+    func outputCreated(descriptorData: Data) {
+        continuation.yield(.outputCreated(descriptorData: descriptorData))
+    }
+
+    func outputRemoved(outputID: String) {
+        continuation.yield(.outputRemoved(outputID: outputID))
+    }
+
+    func outputRenamed(outputID: String, newName: String) {
+        continuation.yield(.outputRenamed(outputID: outputID, newName: newName))
     }
 }
