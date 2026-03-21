@@ -177,14 +177,11 @@ public final class ShellViewState: ObservableObject {
     @Published public var clipPlayerStore: ClipPlayerPlaylistStore?
     /// Timer control store — injected when TimerProducer is available.
     @Published public var timerStore: TimerControlStore?
-    /// Presentation launcher store — created immediately (no external dependency).
+    /// Presentation launcher store — created immediately, shared by launcher + presenter view panels.
     @Published public var presentationStore: PresentationLauncherStore = PresentationLauncherStore()
 
     /// Currently focused output card for keyboard navigation (Task 130).
     @Published public var focusedCardID: String?
-
-    /// Task 135: Shared presentation store — drives launcher panel and presenter view panel.
-    public let presentationStore = PresentationLauncherStore()
 
     /// Render feeds for IOSurface thumbnails, keyed by sourceID.
     /// Each slot cell looks up its render feed by sourceID.
