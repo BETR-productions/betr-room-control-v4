@@ -10,6 +10,8 @@ struct OutputSlotCell: View {
     let card: OutputCardState
     let slot: OutputSlotState
     @ObservedObject var state: ShellViewState
+    /// Emergency cold-cut confirmation: true after first tap on non-warm PGM.
+    @State private var coldCutPending = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -55,12 +57,12 @@ struct OutputSlotCell: View {
                 stateButton("PVW", active: isPreview, tint: BrandTokens.pvwRed) {
                     state.setPreviewSlot(card.id, slotID: isPreview ? nil : slot.id)
                 }
-                .disabled(!slotCanPreview)
+                .disabled(!pvwEnabled)
 
-                stateButton("PGM", active: isProgram, tint: BrandTokens.pgnGreen) {
-                    state.takeProgramSlot(card.id, slotID: slot.id)
+                stateButton(pgmButtonLabel, active: isProgram, tint: pgmButtonTint) {
+                    handlePGMTap()
                 }
-                .disabled(!slotCanSwitch)
+                .disabled(!pgmEnabled)
             }
         }
         .padding(10)
@@ -100,13 +102,13 @@ struct OutputSlotCell: View {
                 Button("Arm Preview") {
                     state.setPreviewSlot(card.id, slotID: slot.id)
                 }
-                .disabled(!slotCanPreview)
+                .disabled(!pvwEnabled)
             }
 
             Button("Take Program") {
                 state.takeProgramSlot(card.id, slotID: slot.id)
             }
-            .disabled(!slotCanSwitch)
+            .disabled(!pgmEnabled)
         }
     }
 
@@ -114,8 +116,45 @@ struct OutputSlotCell: View {
 
     private var isProgram: Bool { card.programSlotID == slot.id }
     private var isPreview: Bool { card.previewSlotID == slot.id }
-    private var slotCanSwitch: Bool { slot.sourceID != nil && slot.isAvailable }
-    private var slotCanPreview: Bool { slotCanSwitch && !isProgram }
+    private var hasSource: Bool { slot.sourceID != nil && slot.isAvailable }
+    private var isWarmOrWarming: Bool { slot.warmBadge == .warm || slot.warmBadge == .warming }
+
+    /// PVW: requires source + available + not program + warm or warming.
+    /// Disabled when cold or failed — must warm before preview.
+    private var pvwEnabled: Bool { hasSource && !isProgram && isWarmOrWarming }
+
+    /// PGM normal: requires warm source. Emergency cold cut: double-tap allowed.
+    private var pgmEnabled: Bool { hasSource }
+    private var pgmIsWarm: Bool { slot.warmBadge == .warm }
+
+    private var pgmButtonLabel: String {
+        if coldCutPending { return "CONFIRM" }
+        return "PGM"
+    }
+
+    private var pgmButtonTint: Color {
+        if coldCutPending { return BrandTokens.red }
+        return BrandTokens.pgnGreen
+    }
+
+    private func handlePGMTap() {
+        if pgmIsWarm || isProgram {
+            // Normal warm cut or re-tap on current program
+            coldCutPending = false
+            state.takeProgramSlot(card.id, slotID: slot.id)
+        } else if coldCutPending {
+            // Second tap — confirmed emergency cold cut
+            coldCutPending = false
+            state.takeProgramSlot(card.id, slotID: slot.id)
+        } else {
+            // First tap on non-warm source — require confirmation
+            coldCutPending = true
+            // Auto-cancel after 3 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [self] in
+                coldCutPending = false
+            }
+        }
+    }
 
     private var borderColor: Color {
         if isProgram { return BrandTokens.pgnGreen }

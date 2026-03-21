@@ -104,31 +104,8 @@ public struct RoomControlShellView: View {
     // MARK: - Columns
 
     private var leftColumn: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                panelHeader("SOURCES")
-                    .padding(16)
-                ForEach(state.sources) { source in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(source.isOnline ? .green : BrandTokens.warmGrey)
-                            .frame(width: 8, height: 8)
-                        Text(source.name)
-                            .font(BrandTokens.display(size: 12))
-                            .foregroundStyle(source.isOnline ? BrandTokens.offWhite : BrandTokens.warmGrey)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                }
-                if state.sources.isEmpty {
-                    Text("No sources discovered")
-                        .font(BrandTokens.display(size: 12))
-                        .foregroundStyle(BrandTokens.warmGrey)
-                        .padding(16)
-                }
-            }
-        }
-        .background(BrandTokens.dark)
+        SourceBrowserView(state: state)
+            .background(BrandTokens.dark)
     }
 
     private var centerColumn: some View {
@@ -138,9 +115,17 @@ public struct RoomControlShellView: View {
                     .padding(16)
                 ForEach(state.cards) { card in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(card.name)
-                            .font(BrandTokens.display(size: 13, weight: .semibold))
-                            .foregroundStyle(BrandTokens.offWhite)
+                        HStack {
+                            Text(card.name)
+                                .font(BrandTokens.display(size: 13, weight: .semibold))
+                                .foregroundStyle(BrandTokens.offWhite)
+                            Spacer()
+                            // Audio meters for the program source on this card
+                            if let pgmSlotID = card.programSlotID,
+                               let pgmSlot = card.slots.first(where: { $0.id == pgmSlotID }) {
+                                OutputCardAudioMeter(sourceID: pgmSlot.sourceID, state: state)
+                            }
+                        }
                         OutputSlotBank(card: card, state: state)
                     }
                     .padding(12)
