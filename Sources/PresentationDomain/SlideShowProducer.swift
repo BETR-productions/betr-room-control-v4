@@ -1,5 +1,7 @@
 // SlideShowProducer — SCStream capture for the slideshow window.
-// Static slot: "BËTR Slideshow". Auto-warm/cool based on window visibility.
+// Static slot: "BËTR Slideshow". 1920×1080, 29.97fps, BGRA.
+// Auto-warm on capture start, auto-cool on window loss.
+// Spec: capture starts ONLY after PresentationController verifies slideshow mode.
 
 import AppKit
 import CoreMedia
@@ -18,23 +20,35 @@ public actor SlideShowProducer {
     private let frameRateDenominator = 30000
 
     private var stream: SCStream?
-    private var streamDelegate: StreamOutputDelegate?
+    private var streamDelegate: SlideShowStreamDelegate?
     private var trackedWindowID: CGWindowID?
     private var pollTask: Task<Void, Never>?
     private var appKind: PresentationAppKind?
-    private var registered = false
+    private var capturing = false
 
     /// Called when the slideshow capture becomes available or unavailable.
     public var onAvailabilityChanged: (@Sendable (Bool) -> Void)?
 
-    /// Called with each captured video frame (BGRA pixel buffer).
+    /// Called with each captured video frame (BGRA pixel buffer + timestamp).
     public var onFrame: (@Sendable (CVPixelBuffer, Int64) -> Void)?
 
+    /// Called when capture starts to signal warm-pool auto-warm.
+    public var onWarmRequested: (@Sendable () -> Void)?
+
+    /// Called when capture stops to signal warm-pool auto-cool.
+    public var onCoolRequested: (@Sendable () -> Void)?
+
     public init() {}
+
+    /// Set the availability callback (actor-safe setter).
+    public func setOnAvailabilityChanged(_ handler: (@Sendable (Bool) -> Void)?) {
+        onAvailabilityChanged = handler
+    }
 
     // MARK: - Monitoring
 
     /// Start monitoring for slideshow windows from the given presentation app.
+    /// Call this only after PresentationController has verified slideshow mode.
     public func startMonitoring(for kind: PresentationAppKind) {
         stopMonitoring()
         appKind = kind
@@ -65,6 +79,16 @@ public actor SlideShowProducer {
         trackedWindowID = nil
     }
 
+    /// The tracked window ID (for PresenterViewProducer to exclude).
+    public func currentWindowID() -> CGWindowID? {
+        trackedWindowID
+    }
+
+    /// Whether capture is actively running.
+    public func isCapturing() -> Bool {
+        capturing
+    }
+
     /// Producer descriptor for registration with the agent.
     public var descriptor: LocalProducerDescriptor {
         LocalProducerDescriptor(
@@ -75,7 +99,7 @@ public actor SlideShowProducer {
         )
     }
 
-    // MARK: - Private
+    // MARK: - Private: Window Detection
 
     private func pollForWindow() async {
         guard let appKind else { return }
@@ -84,9 +108,11 @@ public actor SlideShowProducer {
             let content = try await SCShareableContent.current
             let bundleIDs = appKind.bundleIdentifiers
 
+            // Filter to windows belonging to the tracked presentation app
             let appWindows = content.windows.filter { window in
                 guard let bundleID = window.owningApplication?.bundleIdentifier else { return false }
                 return bundleIDs.contains(bundleID)
+                    && window.frame.width > 100 && window.frame.height > 100
             }
 
             guard !appWindows.isEmpty else {
@@ -132,17 +158,23 @@ public actor SlideShowProducer {
         }
     }
 
+    // MARK: - Private: Stream Lifecycle
+
     private func startStream(for window: SCWindow) async {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
         config.width = outputWidth
         config.height = outputHeight
-        config.minimumFrameInterval = CMTime(value: CMTimeValue(frameRateNumerator), timescale: CMTimeScale(frameRateDenominator))
+        config.minimumFrameInterval = CMTime(
+            value: CMTimeValue(frameRateNumerator),
+            timescale: CMTimeScale(frameRateDenominator)
+        )
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.scalesToFit = true
         config.showsCursor = false
+        config.capturesAudio = false
 
-        let delegate = StreamOutputDelegate()
+        let delegate = SlideShowStreamDelegate()
         let onFrameCallback = onFrame
         delegate.onSampleBuffer = { pixelBuffer, timestampNs in
             onFrameCallback?(pixelBuffer, timestampNs)
@@ -150,12 +182,19 @@ public actor SlideShowProducer {
 
         let newStream = SCStream(filter: filter, configuration: config, delegate: nil)
         do {
-            try newStream.addStreamOutput(delegate, type: .screen, sampleHandlerQueue: .global(qos: .userInitiated))
+            try newStream.addStreamOutput(
+                delegate, type: .screen,
+                sampleHandlerQueue: .global(qos: .userInitiated)
+            )
             try await newStream.startCapture()
             stream = newStream
             streamDelegate = delegate
+            capturing = true
             onAvailabilityChanged?(true)
+            // Auto-warm on capture start
+            onWarmRequested?()
         } catch {
+            capturing = false
             onAvailabilityChanged?(false)
         }
     }
@@ -164,27 +203,42 @@ public actor SlideShowProducer {
         if let s = stream {
             try? await s.stopCapture()
         }
+        let wasCapturing = capturing
         stream = nil
         streamDelegate = nil
-        onAvailabilityChanged?(false)
+        capturing = false
+        if wasCapturing {
+            onAvailabilityChanged?(false)
+            // Auto-cool on capture stop
+            onCoolRequested?()
+        }
     }
 
     private func tearDownStream() {
         if let s = stream {
             Task { try? await s.stopCapture() }
         }
+        let wasCapturing = capturing
         stream = nil
         streamDelegate = nil
-        onAvailabilityChanged?(false)
+        capturing = false
+        if wasCapturing {
+            onAvailabilityChanged?(false)
+            onCoolRequested?()
+        }
     }
 }
 
 // MARK: - Stream Output Delegate
 
-private final class StreamOutputDelegate: NSObject, SCStreamOutput, @unchecked Sendable {
+private final class SlideShowStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable {
     var onSampleBuffer: ((_ pixelBuffer: CVPixelBuffer, _ timestampNs: Int64) -> Void)?
 
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+    func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of type: SCStreamOutputType
+    ) {
         guard type == .screen,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
