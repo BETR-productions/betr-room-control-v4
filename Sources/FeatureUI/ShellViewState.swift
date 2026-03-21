@@ -177,8 +177,6 @@ public final class ShellViewState: ObservableObject {
     @Published public var clipPlayerStore: ClipPlayerPlaylistStore?
     /// Timer control store — injected when TimerProducer is available.
     @Published public var timerStore: TimerControlStore?
-    /// Presentation launcher store — created immediately (no external dependency).
-    @Published public var presentationStore: PresentationLauncherStore = PresentationLauncherStore()
 
     /// Currently focused output card for keyboard navigation (Task 130).
     @Published public var focusedCardID: String?
