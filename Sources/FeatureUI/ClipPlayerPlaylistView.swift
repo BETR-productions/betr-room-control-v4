@@ -301,7 +301,16 @@ public final class ClipPlayerPlaylistStore: ObservableObject {
     }
 
     public func moveItems(from source: IndexSet, to destination: Int) {
+        // Track selectedIndex and currentItemIndex through the reorder
+        let selectedID = selectedIndex.flatMap { items.indices.contains($0) ? items[$0].id : nil }
+        let currentID = currentItemIndex.flatMap { items.indices.contains($0) ? items[$0].id : nil }
+
         items.move(fromOffsets: source, toOffset: destination)
+
+        // Restore tracked indices by ID lookup after move
+        selectedIndex = selectedID.flatMap { id in items.firstIndex { $0.id == id } }
+        currentItemIndex = currentID.flatMap { id in items.firstIndex { $0.id == id } }
+
         syncPlaylistToProducer()
     }
 
