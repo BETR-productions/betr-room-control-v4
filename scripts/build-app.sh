@@ -261,8 +261,11 @@ copy_ndi_runtime() {
   local ndi_dir="$BETR_CORE_DIR/Vendor/NDI/lib/macos"
   mkdir -p "$destination_dir"
   cp "$ndi_dir/libndi.dylib" "$destination_dir/libndi.dylib"
-  cp "$ndi_dir/libndi_advanced.dylib" "$destination_dir/libndi_advanced.dylib"
-  chmod 755 "$destination_dir/libndi.dylib" "$destination_dir/libndi_advanced.dylib"
+  chmod 755 "$destination_dir/libndi.dylib"
+  if [[ -f "$ndi_dir/libndi_advanced.dylib" ]]; then
+    cp "$ndi_dir/libndi_advanced.dylib" "$destination_dir/libndi_advanced.dylib"
+    chmod 755 "$destination_dir/libndi_advanced.dylib"
+  fi
 }
 
 generate_dmg_background_if_needed() {
@@ -421,8 +424,8 @@ NDI_VENDOR_DIR="$BETR_CORE_DIR/Vendor/NDI/lib/macos"
 ensure_clean_core_checkout
 capture_build_shas
 
-if [[ ! -f "$NDI_VENDOR_DIR/libndi.dylib" || ! -f "$NDI_VENDOR_DIR/libndi_advanced.dylib" ]]; then
-  echo "ERROR: Expected embedded NDI runtime in '$NDI_VENDOR_DIR'."
+if [[ ! -f "$NDI_VENDOR_DIR/libndi.dylib" ]]; then
+  echo "ERROR: libndi.dylib not found in '$NDI_VENDOR_DIR'."
   echo "Set BETR_CORE_DIR if the active Core v3 worktree lives somewhere else."
   exit 1
 fi
@@ -505,7 +508,7 @@ copy_ndi_runtime "$AGENT_CONTENTS/Frameworks"
 
 # Embed app-level XPC services (from betr-room-control-v4 Package.swift)
 service_entry=""
-for service_entry in "${XPC_SERVICES[@]}"; do
+for service_entry in ${XPC_SERVICES[@]+${XPC_SERVICES[@]+"${XPC_SERVICES[@]}"}}; do
   service_name="${service_entry%%:*}"
   service_bundle_id="${service_entry#*:}"
   service_bin="$BIN_DIR/$service_name"
@@ -527,7 +530,7 @@ done
 # Copy Swift stdlib into Frameworks
 if command -v xcrun >/dev/null 2>&1; then
   SCAN_EXECUTABLES=("$CONTENTS_DIR/MacOS/$APP_NAME" "$AGENT_CONTENTS/MacOS/$CORE_AGENT_NAME")
-  for service_entry in "${XPC_SERVICES[@]}"; do
+  for service_entry in ${XPC_SERVICES[@]+${XPC_SERVICES[@]+"${XPC_SERVICES[@]}"}}; do
     service_name="${service_entry%%:*}"
     service_bundle_id="${service_entry#*:}"
     xpc_exec="$CONTENTS_DIR/XPCServices/${service_bundle_id}.xpc/Contents/MacOS/$service_name"
@@ -601,7 +604,7 @@ PLIST
   sign_path_if_requested "$AGENT_BUNDLE" "$AGENT_ENTITLEMENTS"
 
   # 3. Sign XPC services
-  for service_entry in "${XPC_SERVICES[@]}"; do
+  for service_entry in ${XPC_SERVICES[@]+"${XPC_SERVICES[@]}"}; do
     service_name="${service_entry%%:*}"
     service_bundle_id="${service_entry#*:}"
     service_bundle="$CONTENTS_DIR/XPCServices/${service_bundle_id}.xpc"
