@@ -493,7 +493,10 @@ private extension ClipPlayerProducer {
     // Core's dissolve engine handles blend between outgoing and incoming clip frames.
     func signalClipTransition(for item: ClipItem) {
         guard let coreCommands, let producerID else { return }
-        let config = TransitionConfig(kind: item.transitionKind)
+        let config = TransitionConfig(
+            kind: item.transitionKind,
+            durationSeconds: item.transitionDurationSeconds
+        )
         guard let transitionData = try? JSONEncoder().encode(config) else { return }
         coreCommands.setProgram(
             sourceID: producerID,
