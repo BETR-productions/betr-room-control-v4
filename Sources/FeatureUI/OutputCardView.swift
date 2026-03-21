@@ -1,7 +1,7 @@
-// OutputCardView — multi-output card with live preview, 3x2 slot bank, audio meters, mute.
-// Task 121: Port v3 OutputPreviewTile + OutputSlotBank into per-output card.
-// Vertical layout for center column. Live IOSurface preview at top, 3x2 slot grid below.
-// PVW/PGM buttons per slot (via OutputSlotCell). Output name editable inline. Mute button.
+// OutputCardView — v3 HORIZONTAL OutputPreviewTile layout.
+// Left: 312pt preview section (header, live 312×176, source info).
+// Middle: flexible OutputSlotBank (3-col ViewThatFits, minWidth 108pt).
+// Right: 108pt control column (Mute, Solo, Actions).
 
 import RoutingDomain
 import SwiftUI
@@ -17,18 +17,17 @@ struct OutputCardView: View {
     @FocusState private var nameFieldFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            cardHeader
-            statusPills
-            // Task 141: Horizontal layout — preview left, slots middle, controls right
-            HStack(alignment: .top, spacing: 10) {
-                outputPreview
-                    .frame(width: 160)
-                VStack(spacing: 6) {
-                    OutputSlotBank(card: card, state: state)
-                    cardFooter
-                }
-            }
+        HStack(alignment: .top, spacing: 12) {
+            // Left section: 312pt fixed — preview hero
+            leftPreviewSection
+                .frame(width: 312)
+
+            // Middle section: flexible — slot bank
+            OutputSlotBank(card: card, state: state)
+
+            // Right section: 108pt fixed — control buttons
+            rightControlSection
+                .frame(width: 108)
         }
         .padding(12)
         .background(BrandTokens.surfaceDark)
@@ -53,43 +52,49 @@ struct OutputCardView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Left Preview Section (312pt)
 
-    private var cardHeader: some View {
-        HStack(spacing: 8) {
-            if isEditingName {
-                TextField("Output name", text: $editedName)
-                    .font(BrandTokens.display(size: 13, weight: .semibold))
-                    .textFieldStyle(.plain)
-                    .focused($nameFieldFocused)
-                    .onSubmit { commitRename() }
-                    .onExitCommand { cancelEditing() }
-                    .frame(maxWidth: 160)
-            } else {
-                Text(card.name)
-                    .font(BrandTokens.display(size: 13, weight: .semibold))
-                    .foregroundStyle(BrandTokens.offWhite)
-                    .onTapGesture(count: 2) { startEditing() }
+    private var leftPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Header: card name + listener badge + status pills
+            HStack(spacing: 6) {
+                if isEditingName {
+                    TextField("Output name", text: $editedName)
+                        .font(BrandTokens.display(size: 12, weight: .semibold))
+                        .textFieldStyle(.plain)
+                        .focused($nameFieldFocused)
+                        .onSubmit { commitRename() }
+                        .onExitCommand { cancelEditing() }
+                        .frame(maxWidth: 160)
+                } else {
+                    Text(card.name)
+                        .font(BrandTokens.display(size: 12, weight: .semibold))
+                        .foregroundStyle(BrandTokens.offWhite)
+                        .onTapGesture(count: 2) { startEditing() }
+                }
+
+                if card.listenerCount > 0 {
+                    listenerBadge
+                }
+
+                statusPills
+
+                Spacer()
             }
 
-            if card.listenerCount > 0 {
-                listenerBadge
-            }
+            // Live preview: 312×176pt
+            outputPreview
+                .frame(width: 312, height: 176)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(liveOutBadge, alignment: .topTrailing)
+                .overlay(audioMetersOverlay, alignment: .bottomTrailing)
 
-            Spacer()
-
-            // Per-output audio meters from program source (Task 126)
-            if let pgmSlotID = card.programSlotID,
-               let pgmSlot = card.slots.first(where: { $0.id == pgmSlotID }) {
-                OutputCardAudioMeter(sourceID: pgmSlot.sourceID, state: state)
-                    .opacity(card.isAudioMuted ? 0.3 : 1.0)
-            }
-
-            muteButton
+            // Source info: name + raster
+            sourceInfoRow
         }
     }
 
-    // MARK: - Status Pills (Task 139)
+    // MARK: - Status Pills (inline with header)
 
     @ViewBuilder
     private var statusPills: some View {
@@ -105,8 +110,6 @@ struct OutputCardView: View {
                         .background(pill.background)
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
-                Spacer()
-                soloButton
             }
         }
     }
@@ -119,7 +122,6 @@ struct OutputCardView: View {
 
     private func buildStatusPills() -> [StatusPill] {
         var pills: [StatusPill] = []
-
         if card.programSlotID != nil {
             pills.append(StatusPill(label: "PGM", foreground: BrandTokens.white, background: BrandTokens.pgnGreen))
         }
@@ -128,56 +130,27 @@ struct OutputCardView: View {
         }
         if card.isAudioMuted {
             pills.append(StatusPill(label: "MUTED", foreground: BrandTokens.white, background: BrandTokens.red))
-        } else if card.programSlotID != nil {
-            pills.append(StatusPill(label: "AUDIO", foreground: BrandTokens.offWhite, background: BrandTokens.charcoal))
         }
         if card.isSoloed {
             pills.append(StatusPill(label: "SOLO", foreground: BrandTokens.dark, background: .blue))
         }
-
         return pills
     }
 
-    // MARK: - Solo Button (Task 140)
-
-    private var soloButton: some View {
-        Button {
-            state.toggleSolo(card.id)
-        } label: {
-            Text("SOLO")
-                .font(BrandTokens.mono(size: 8))
-                .foregroundStyle(card.isSoloed ? BrandTokens.dark : BrandTokens.warmGrey)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(card.isSoloed ? Color.blue : BrandTokens.charcoal)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-        }
-        .buttonStyle(.plain)
-        .help(card.isSoloed ? "Unsolo output" : "Solo output — route to cue/monitor")
-    }
-
-    // MARK: - Live Preview (Task 125)
+    // MARK: - Live Preview (312×176)
 
     @ViewBuilder
     private var outputPreview: some View {
-        // Per-output compositor preview when available (Task 125);
-        // falls back to program source thumbnail until compositor XPC is wired.
         if let pgmSlotID = card.programSlotID,
            let pgmSlot = card.slots.first(where: { $0.id == pgmSlotID }),
            let sourceID = pgmSlot.sourceID,
            let feed = state.thumbnailFeeds[sourceID] {
             let _ = state.thumbnailSequence
             OutputSurfaceMetalView(renderFeed: feed)
-                .frame(minHeight: 120)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(liveBadge, alignment: .topTrailing)
+                .aspectRatio(16.0 / 9.0, contentMode: .fill)
         } else {
             Rectangle()
                 .fill(BrandTokens.cardBlack)
-                .frame(minHeight: 120)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(
                     VStack(spacing: 4) {
                         Image(systemName: "play.rectangle.fill")
@@ -191,25 +164,117 @@ struct OutputCardView: View {
         }
     }
 
-    // MARK: - Footer
+    @ViewBuilder
+    private var liveOutBadge: some View {
+        if card.programSlotID != nil {
+            Text("LIVE OUT")
+                .font(BrandTokens.mono(size: 8))
+                .foregroundStyle(BrandTokens.offWhite)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(BrandTokens.red.opacity(0.85))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .padding(6)
+        }
+    }
 
-    private var cardFooter: some View {
-        HStack(spacing: 8) {
-            if !card.senderName.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 8))
-                    Text(card.senderName)
-                        .font(BrandTokens.mono(size: 9))
-                }
-                .foregroundStyle(BrandTokens.warmGrey)
+    @ViewBuilder
+    private var audioMetersOverlay: some View {
+        if let pgmSlotID = card.programSlotID,
+           let pgmSlot = card.slots.first(where: { $0.id == pgmSlotID }) {
+            OutputCardAudioMeter(sourceID: pgmSlot.sourceID, state: state)
+                .opacity(card.isAudioMuted ? 0.3 : 1.0)
+                .padding(6)
+        }
+    }
+
+    // MARK: - Source Info Row
+
+    private var sourceInfoRow: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let pgmSlotID = card.programSlotID,
+               let pgmSlot = card.slots.first(where: { $0.id == pgmSlotID }),
+               let name = pgmSlot.displayName {
+                Text(name)
+                    .font(BrandTokens.display(size: 12, weight: .semibold))
+                    .foregroundStyle(BrandTokens.offWhite)
+                    .lineLimit(2)
+                    .frame(minHeight: 32, alignment: .topLeading)
+            } else {
+                Text("No source")
+                    .font(BrandTokens.display(size: 12, weight: .semibold))
+                    .foregroundStyle(BrandTokens.warmGrey)
+                    .frame(minHeight: 32, alignment: .topLeading)
             }
-            Spacer()
-            if card.listenerCount > 0 {
-                Text("\(card.listenerCount) listener\(card.listenerCount == 1 ? "" : "s")")
+
+            if !card.senderName.isEmpty {
+                Text(card.senderName)
                     .font(BrandTokens.mono(size: 9))
                     .foregroundStyle(BrandTokens.warmGrey)
             }
+        }
+    }
+
+    // MARK: - Right Control Section (108pt)
+
+    private var rightControlSection: some View {
+        VStack(spacing: 8) {
+            Spacer()
+
+            // Mute button
+            Button {
+                state.toggleMute(card.id)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: card.isAudioMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.system(size: 11))
+                    Text(card.isAudioMuted ? "Unmute" : "Mute")
+                        .font(BrandTokens.display(size: 11, weight: .medium))
+                }
+                .foregroundStyle(card.isAudioMuted ? BrandTokens.red : BrandTokens.warmGrey)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            // Solo button
+            Button {
+                state.toggleSolo(card.id)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "headphones")
+                        .font(.system(size: 11))
+                    Text("Solo")
+                        .font(BrandTokens.display(size: 11, weight: .medium))
+                }
+                .foregroundStyle(card.isSoloed ? BrandTokens.dark : BrandTokens.warmGrey)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(card.isSoloed ? .blue : nil)
+            .controlSize(.small)
+
+            // Actions menu
+            Menu {
+                Button("Rename Output...") { startEditing() }
+                Divider()
+                Button("Delete Output", role: .destructive) {
+                    showDeleteConfirmation = true
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 11))
+                    Text("Actions")
+                        .font(BrandTokens.display(size: 11, weight: .medium))
+                }
+                .foregroundStyle(BrandTokens.warmGrey)
+                .frame(maxWidth: .infinity)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(maxWidth: .infinity)
+
+            Spacer()
         }
     }
 
@@ -229,33 +294,7 @@ struct OutputCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
-    private var muteButton: some View {
-        Button {
-            state.toggleMute(card.id)
-        } label: {
-            Image(systemName: card.isAudioMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(card.isAudioMuted ? BrandTokens.red : BrandTokens.warmGrey)
-        }
-        .buttonStyle(.plain)
-        .help(card.isAudioMuted ? "Unmute output" : "Mute output")
-    }
-
-    @ViewBuilder
-    private var liveBadge: some View {
-        if card.programSlotID != nil {
-            Text("LIVE")
-                .font(BrandTokens.mono(size: 8))
-                .foregroundStyle(BrandTokens.offWhite)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(BrandTokens.red.opacity(0.85))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .padding(6)
-        }
-    }
-
-    // MARK: - Context Menu (Task 122)
+    // MARK: - Context Menu
 
     @ViewBuilder
     private var cardContextMenu: some View {
