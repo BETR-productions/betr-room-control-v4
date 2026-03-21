@@ -1,8 +1,10 @@
 // PersistenceDomain — user preferences, session state, layout persistence.
 // Task 54: Clip player playlist persistence (encode [ClipItem] to JSON, restore on launch).
+// Task 127: Output topology persistence (save/restore output cards, slot bindings, PVW/PGM).
 
 import ClipPlayerDomain
 import Foundation
+import RoomControlXPCContracts
 import TimerDomain
 
 /// Persisted column widths for three-column layout.
@@ -40,6 +42,58 @@ public struct PersistedTimerConfig: Codable, Sendable {
     ) {
         self.mode = mode
         self.durationSeconds = durationSeconds
+    }
+}
+
+// MARK: - Output Topology Persistence (Task 127)
+
+/// Persisted source-to-slot binding within an output card.
+public struct PersistedSlotBinding: Codable, Sendable, Equatable {
+    public let slotID: String
+    public var sourceID: String?
+    public var displayName: String?
+
+    public init(slotID: String, sourceID: String? = nil, displayName: String? = nil) {
+        self.slotID = slotID
+        self.sourceID = sourceID
+        self.displayName = displayName
+    }
+}
+
+/// Persisted descriptor for a single NDI output (maps to one OutputCardState in UI).
+public struct PersistedOutputDescriptor: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public var name: String
+    public var playout: PlayoutConfig
+    public var slots: [PersistedSlotBinding]
+    public var programSlotID: String?
+    public var previewSlotID: String?
+
+    public init(
+        id: String,
+        name: String,
+        playout: PlayoutConfig = PlayoutConfig(),
+        slots: [PersistedSlotBinding] = [],
+        programSlotID: String? = nil,
+        previewSlotID: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.playout = playout
+        self.slots = slots
+        self.programSlotID = programSlotID
+        self.previewSlotID = previewSlotID
+    }
+}
+
+/// Top-level persisted output topology — JSON array of outputs with full slot bindings.
+public struct PersistedOutputTopology: Codable, Sendable, Equatable {
+    public var outputs: [PersistedOutputDescriptor]
+    public var savedAt: Date
+
+    public init(outputs: [PersistedOutputDescriptor] = [], savedAt: Date = Date()) {
+        self.outputs = outputs
+        self.savedAt = savedAt
     }
 }
 
@@ -87,6 +141,16 @@ public final class PersistenceStore: Sendable {
 
     public func saveTimerConfig(_ config: PersistedTimerConfig) {
         save(config, to: "timer-config.json")
+    }
+
+    // MARK: - Output Topology (Task 127)
+
+    public func loadOutputTopology() -> PersistedOutputTopology? {
+        load("output-topology.json")
+    }
+
+    public func saveOutputTopology(_ topology: PersistedOutputTopology) {
+        save(topology, to: "output-topology.json")
     }
 
     // MARK: - Generic Load/Save
