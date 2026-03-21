@@ -1,5 +1,6 @@
 // PresentationController — async Swift actor wrapping PresentationBridgeController.
-// Lifecycle: open → slideshow → navigate → exit.
+// Lifecycle: open_or_locate → metadata_ready → start_or_navigate → verify_mode → publish_state.
+// Spec: PRESENTATION_AUTOMATION.md — all invariants enforced here.
 
 import AppKit
 import BETRCoreObjC
@@ -19,9 +20,9 @@ public enum PresentationAppKind: String, Codable, Sendable, Equatable, CaseItera
         }
     }
 
-    var bundleIdentifiers: [String] {
+    public var bundleIdentifiers: [String] {
         switch self {
-        case .keynote: return ["com.apple.iWork.Keynote"]
+        case .keynote: return ["com.apple.iWork.Keynote", "com.apple.Keynote"]
         case .powerPoint: return ["com.microsoft.PowerPoint", "com.microsoft.Powerpoint"]
         }
     }
@@ -43,91 +44,201 @@ public struct PresentationState: Sendable, Equatable {
     public let totalSlides: Int
     public let hasPresenterView: Bool
     public let slideShowBounds: CGRect
+    public let sessionPhase: PresentationSessionPhase
+    public let probeReasonCode: String?
 
     public static let closed = PresentationState(
         appKind: nil, mode: .closed, filePath: "",
         currentSlide: 0, totalSlides: 0,
-        hasPresenterView: false, slideShowBounds: .zero
+        hasPresenterView: false, slideShowBounds: .zero,
+        sessionPhase: .closed, probeReasonCode: nil
     )
+}
+
+// MARK: - Constants
+
+private enum PresentationConstants {
+    /// Grace period for app launch before first Scripting Bridge query.
+    static let appLaunchGraceMs: UInt64 = 800
+    /// Budget for metadata readiness (totalSlides > 0).
+    static let metadataBudgetMs: UInt64 = 1200
+    /// Poll interval during metadata wait.
+    static let metadataPollMs: UInt64 = 100
+    /// Budget for slideshow verification after start.
+    static let verifyBudgetMs: UInt64 = 2000
+    /// Poll interval during slideshow verification.
+    static let verifyPollMs: UInt64 = 150
 }
 
 // MARK: - PresentationController
 
 /// Async Swift API for controlling PowerPoint and Keynote via Scripting Bridge.
 /// All bridge calls are dispatched off the main thread.
+///
+/// Enforces the documented presentation automation invariants:
+/// - Open or locate deck by exact full path
+/// - Wait for presentation metadata before slideshow start
+/// - Use slide show settings + run slide show (PowerPoint)
+/// - Do not require slideshow window lookup in same call that starts slideshow
+/// - Verify slideshow mode after start, then signal capture readiness
+/// - Start capture only after slideshow mode is verified
 public actor PresentationController {
     private let bridge = PresentationBridgeController()
     private var activeAppKind: PresentationAppKind?
     private var activeFilePath: String = ""
-    private var workspaceObserver: NSObjectProtocol?
+    private var sessionPhase: PresentationSessionPhase = .closed
+    private var lastProbeReasonCode: String?
 
-    /// Callback when a presentation app launches or terminates.
-    public var onAppStateChanged: (@Sendable (PresentationAppKind, Bool) -> Void)?
+    private var terminationObserver: NSObjectProtocol?
+    private var activationObserver: NSObjectProtocol?
+
+    /// Callback when a presentation app activates or terminates.
+    /// Parameters: (appKind, isActive).
+    private var onAppStateChanged: (@Sendable (PresentationAppKind, Bool) -> Void)?
+
+    /// Callback when session phase changes. Used to coordinate capture start/stop.
+    private var onSessionPhaseChanged: (@Sendable (PresentationSessionPhase, PresentationState) -> Void)?
 
     public init() {}
 
+    /// Set the app state change callback (actor-safe setter).
+    public func setOnAppStateChanged(_ handler: (@Sendable (PresentationAppKind, Bool) -> Void)?) {
+        onAppStateChanged = handler
+    }
+
+    /// Set the session phase change callback (actor-safe setter).
+    public func setOnSessionPhaseChanged(_ handler: (@Sendable (PresentationSessionPhase, PresentationState) -> Void)?) {
+        onSessionPhaseChanged = handler
+    }
+
     deinit {
-        if let observer = workspaceObserver {
+        if let observer = terminationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        if let observer = activationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
     }
 
-    // MARK: - Lifecycle
+    // MARK: - Lifecycle (Task 65)
 
-    /// Start observing workspace app launch/terminate events.
+    /// Start observing workspace app activation/termination events.
+    /// Pure event-driven — no polling.
     public func startMonitoring() {
-        guard workspaceObserver == nil else { return }
-        let callback = onAppStateChanged
+        guard terminationObserver == nil else { return }
+        let appCallback = onAppStateChanged
         let nc = NSWorkspace.shared.notificationCenter
-        workspaceObserver = nc.addObserver(
+
+        // Termination: clear session when tracked app quits
+        terminationObserver = nc.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let bundleID = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier else { return }
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleID = app.bundleIdentifier else { return }
             let matchedKind = PresentationAppKind.allCases.first { $0.bundleIdentifiers.contains(bundleID) }
             if let kind = matchedKind {
-                callback?(kind, false)
+                appCallback?(kind, false)
                 Task { await self?.handleAppTerminated(kind) }
+            }
+        }
+
+        // Activation: trigger capture start for PowerPoint/Keynote (Task 65)
+        activationObserver = nc.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleID = app.bundleIdentifier else { return }
+            let matchedKind = PresentationAppKind.allCases.first { $0.bundleIdentifiers.contains(bundleID) }
+            if let kind = matchedKind {
+                appCallback?(kind, true)
+                Task { await self?.handleAppActivated(kind) }
             }
         }
     }
 
     /// Stop observing workspace events.
     public func stopMonitoring() {
-        if let observer = workspaceObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            workspaceObserver = nil
+        let nc = NSWorkspace.shared.notificationCenter
+        if let observer = terminationObserver {
+            nc.removeObserver(observer)
+            terminationObserver = nil
+        }
+        if let observer = activationObserver {
+            nc.removeObserver(observer)
+            activationObserver = nil
         }
     }
 
-    // MARK: - Open
+    // MARK: - Open (Task 62)
 
     /// Open a presentation file. Detects app kind from file extension.
+    /// Includes 800ms grace period for app launch and waits for metadata readiness.
     public func openPresentation(filePath: String, appKind: PresentationAppKind? = nil) async -> Bool {
-        let resolvedKind = appKind ?? detectAppKind(for: filePath)
-        guard let kind = resolvedKind else { return false }
+        let canonicalPath = (filePath as NSString).standardizingPath
+        let resolvedKind = appKind ?? detectAppKind(for: canonicalPath)
+        guard let kind = resolvedKind else {
+            lastProbeReasonCode = "unsupported_file_type"
+            return false
+        }
+
+        sessionPhase = .openOrLocate
+        let phaseCallback = onSessionPhaseChanged
+
+        // Check if app is running; if not, grace period for launch
+        let wasRunning = await isAppRunning(kind)
 
         let success: Bool = await withBridge {
             switch kind {
-            case .powerPoint: return self.bridge.openPowerPointFile(filePath)
-            case .keynote: return self.bridge.openKeynoteFile(filePath)
+            case .powerPoint: return self.bridge.openPowerPointFile(canonicalPath)
+            case .keynote: return self.bridge.openKeynoteFile(canonicalPath)
             }
         }
 
-        if success {
-            activeAppKind = kind
-            activeFilePath = filePath
+        guard success else {
+            lastProbeReasonCode = "open_failed"
+            sessionPhase = .closed
+            return false
         }
-        return success
+
+        activeAppKind = kind
+        activeFilePath = canonicalPath
+
+        // DOCUMENTED EXCEPTION: 800ms grace period for app launch
+        if !wasRunning {
+            try? await Task.sleep(nanoseconds: PresentationConstants.appLaunchGraceMs * 1_000_000)
+        }
+
+        // Wait for metadata readiness (totalSlides > 0)
+        let metadataReady = await waitForMetadata(kind: kind)
+        if metadataReady {
+            sessionPhase = .metadataReady
+            let state = await getState()
+            phaseCallback?(.metadataReady, state)
+        } else {
+            lastProbeReasonCode = "metadata_timeout"
+            // Still mark as open — editing mode without confirmed metadata
+            sessionPhase = .metadataReady
+        }
+
+        return true
     }
 
-    // MARK: - Slideshow Control
+    // MARK: - Slideshow Control (Task 62)
 
     /// Start slideshow from a given slide.
+    /// Uses slide show settings + run slide show (PowerPoint invariant).
+    /// Verifies slideshow mode after start before signaling capture readiness.
     public func startSlideshow(fromSlide: Int = 1, withPresenter: Bool = true) async -> Bool {
         guard let kind = activeAppKind else { return false }
-        return await withBridge {
+
+        sessionPhase = .startOrNavigate
+        let phaseCallback = onSessionPhaseChanged
+
+        let started: Bool = await withBridge {
             switch kind {
             case .powerPoint:
                 return self.bridge.showPowerPointSlideShow(fromSlide: Int(fromSlide), withPresenter: withPresenter)
@@ -135,17 +246,49 @@ public actor PresentationController {
                 return self.bridge.showKeynoteSlideShow(fromSlide: Int(fromSlide))
             }
         }
+
+        guard started else {
+            lastProbeReasonCode = "slideshow_start_failed"
+            sessionPhase = .metadataReady
+            return false
+        }
+
+        // INVARIANT: Do NOT require slideshow window lookup in same call that starts slideshow.
+        // Verify slideshow mode via separate state query.
+        sessionPhase = .verifyMode
+
+        let verified = await waitForVerifiedSlideshow(kind: kind)
+        if verified {
+            sessionPhase = .publishState
+            lastProbeReasonCode = nil
+            let state = await getState()
+            phaseCallback?(.publishState, state)
+        } else {
+            lastProbeReasonCode = "slideshow_verify_timeout"
+            // Stay in verifyMode — capture should NOT start
+            sessionPhase = .verifyMode
+        }
+
+        return verified
     }
 
     /// Stop the running slideshow.
     public func stopSlideshow() async -> Bool {
         guard let kind = activeAppKind else { return false }
-        return await withBridge {
+        let success: Bool = await withBridge {
             switch kind {
             case .powerPoint: return self.bridge.exitPowerPointSlideShow()
             case .keynote: return self.bridge.stopKeynoteSlideShow()
             }
         }
+        if success {
+            sessionPhase = .metadataReady
+            lastProbeReasonCode = nil
+            let phaseCallback = onSessionPhaseChanged
+            let state = await getState()
+            phaseCallback?(.metadataReady, state)
+        }
+        return success
     }
 
     /// Close the presentation and optionally quit the app.
@@ -204,6 +347,8 @@ public actor PresentationController {
     public func getState() async -> PresentationState {
         guard let kind = activeAppKind else { return .closed }
         let cachedFilePath = activeFilePath
+        let phase = sessionPhase
+        let reasonCode = lastProbeReasonCode
 
         return await withBridge {
             let running: Bool
@@ -235,7 +380,12 @@ public actor PresentationController {
             }
 
             guard running else {
-                return PresentationState.closed
+                return PresentationState(
+                    appKind: kind, mode: .closed, filePath: cachedFilePath,
+                    currentSlide: 0, totalSlides: 0,
+                    hasPresenterView: false, slideShowBounds: .zero,
+                    sessionPhase: phase, probeReasonCode: "tracked_presentation_missing"
+                )
             }
 
             let mode: PresentationMode = slideshowActive ? .slideshow : (totalSlides > 0 ? .editing : .closed)
@@ -247,12 +397,14 @@ public actor PresentationController {
                 currentSlide: currentSlide,
                 totalSlides: totalSlides,
                 hasPresenterView: hasPresenter,
-                slideShowBounds: bounds
+                slideShowBounds: bounds,
+                sessionPhase: phase,
+                probeReasonCode: reasonCode
             )
         }
     }
 
-    /// Get slide notes for a specific slide.
+    /// Get slide notes for a specific slide (deck-scoped).
     public func getSlideNotes(slideNumber: Int) async -> String? {
         guard slideNumber > 0, let kind = activeAppKind else { return nil }
         return await withBridge {
@@ -273,20 +425,39 @@ public actor PresentationController {
         }
     }
 
-    // MARK: - Private
+    /// Current session phase (read-only accessor).
+    public func currentPhase() -> PresentationSessionPhase {
+        sessionPhase
+    }
+
+    /// Active app kind (read-only accessor).
+    public func currentAppKind() -> PresentationAppKind? {
+        activeAppKind
+    }
+
+    // MARK: - Private: File Detection
 
     private func detectAppKind(for filePath: String) -> PresentationAppKind? {
         let ext = (filePath as NSString).pathExtension.lowercased()
         switch ext {
-        case "key": return .keynote
-        case "ppt", "pptx": return .powerPoint
-        default: return nil
+        case "key":
+            return .keynote
+        case "ppt", "pptx", "pps", "pptm", "ppsm":
+            return .powerPoint
+        default:
+            return nil
         }
     }
+
+    // MARK: - Private: Session Management
 
     private func clearSession() {
         activeAppKind = nil
         activeFilePath = ""
+        sessionPhase = .closed
+        lastProbeReasonCode = nil
+        let phaseCallback = onSessionPhaseChanged
+        phaseCallback?(.closed, .closed)
     }
 
     private func handleAppTerminated(_ kind: PresentationAppKind) {
@@ -294,6 +465,54 @@ public actor PresentationController {
             clearSession()
         }
     }
+
+    /// Handle app activation — used by Task 65 NSWorkspace auto-start.
+    private func handleAppActivated(_ kind: PresentationAppKind) {
+        // If no active session, record the activated app kind so producers can detect windows.
+        // The actual capture start is coordinated via onAppStateChanged callback.
+        if activeAppKind == nil {
+            activeAppKind = kind
+        }
+    }
+
+    // MARK: - Private: Metadata Wait
+
+    /// Wait for metadata readiness (totalSlides > 0) within budget.
+    private func waitForMetadata(kind: PresentationAppKind) async -> Bool {
+        let deadline = DispatchTime.now().uptimeNanoseconds + PresentationConstants.metadataBudgetMs * 1_000_000
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            let count: Int = await withBridge {
+                switch kind {
+                case .powerPoint: return Int(self.bridge.powerPointSlideCount())
+                case .keynote: return Int(self.bridge.keynoteSlideCount())
+                }
+            }
+            if count > 0 { return true }
+            try? await Task.sleep(nanoseconds: PresentationConstants.metadataPollMs * 1_000_000)
+        }
+        return false
+    }
+
+    // MARK: - Private: Slideshow Verification
+
+    /// Wait for slideshow mode to be confirmed after start command.
+    /// INVARIANT: Separate verification pass — do not require window lookup in same call.
+    private func waitForVerifiedSlideshow(kind: PresentationAppKind) async -> Bool {
+        let deadline = DispatchTime.now().uptimeNanoseconds + PresentationConstants.verifyBudgetMs * 1_000_000
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            let active: Bool = await withBridge {
+                switch kind {
+                case .powerPoint: return self.bridge.isPowerPointSlideShowActive()
+                case .keynote: return self.bridge.isKeynoteSlideShowActive()
+                }
+            }
+            if active { return true }
+            try? await Task.sleep(nanoseconds: PresentationConstants.verifyPollMs * 1_000_000)
+        }
+        return false
+    }
+
+    // MARK: - Private: Bridge Dispatch
 
     /// Execute a bridge call off the main actor to avoid blocking.
     private func withBridge<T: Sendable>(_ body: @Sendable @escaping () -> T) async -> T {
