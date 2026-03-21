@@ -1,8 +1,9 @@
 // OutputSlotCell — individual slot cell with PVW/PGM buttons.
 // 108pt min width, 112pt min height, cardBlack background, 8pt corners.
 
-import SwiftUI
+import PresentationDomain
 import RoutingDomain
+import SwiftUI
 
 struct OutputSlotCell: View {
     let card: OutputCardState
@@ -76,8 +77,13 @@ struct OutputSlotCell: View {
                 Button {
                     state.assignSource(source.id, to: card.id, slotID: slot.id)
                 } label: {
+                    let isPresentationSource =
+                        source.name == SlideShowProducer.slotName
+                        || source.name == PresenterViewProducer.slotName
                     if slot.sourceID == source.id {
                         Label(source.name, systemImage: "checkmark")
+                    } else if isPresentationSource {
+                        Label(source.name, systemImage: "star.fill")
                     } else {
                         Text(source.name)
                     }

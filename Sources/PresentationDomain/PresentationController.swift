@@ -29,7 +29,7 @@ public enum PresentationAppKind: String, Codable, Sendable, Equatable, CaseItera
 }
 
 /// Current presentation mode.
-public enum PresentationMode: String, Codable, Sendable, Equatable {
+public enum SlideshowMode: String, Codable, Sendable, Equatable {
     case closed
     case editing
     case slideshow
@@ -38,7 +38,7 @@ public enum PresentationMode: String, Codable, Sendable, Equatable {
 /// Snapshot of presentation state.
 public struct PresentationState: Sendable, Equatable {
     public let appKind: PresentationAppKind?
-    public let mode: PresentationMode
+    public let mode: SlideshowMode
     public let filePath: String
     public let currentSlide: Int
     public let totalSlides: Int
@@ -388,7 +388,7 @@ public actor PresentationController {
                 )
             }
 
-            let mode: PresentationMode = slideshowActive ? .slideshow : (totalSlides > 0 ? .editing : .closed)
+            let mode: SlideshowMode = slideshowActive ? .slideshow : (totalSlides > 0 ? .editing : .closed)
 
             return PresentationState(
                 appKind: kind,

@@ -1,7 +1,15 @@
 // RoomControlShellView — three-column resizable operator shell.
 // Left: sources/inputs. Center: outputs/routing. Right: tools/settings.
 
+import PresentationDomain
+import RoutingDomain
 import SwiftUI
+
+/// Well-known static slot names for presentation sources.
+private enum PresentationSlotNames {
+    static let slideshow = SlideShowProducer.slotName
+    static let presenterView = PresenterViewProducer.slotName
+}
 
 public struct RoomControlShellView: View {
     @ObservedObject var state: ShellViewState
@@ -109,16 +117,7 @@ public struct RoomControlShellView: View {
                 panelHeader("SOURCES")
                     .padding(16)
                 ForEach(state.sources) { source in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(source.isOnline ? .green : BrandTokens.warmGrey)
-                            .frame(width: 8, height: 8)
-                        Text(source.name)
-                            .font(BrandTokens.display(size: 12))
-                            .foregroundStyle(source.isOnline ? BrandTokens.offWhite : BrandTokens.warmGrey)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
+                    sourceRow(source)
                 }
                 if state.sources.isEmpty {
                     Text("No sources discovered")
@@ -129,6 +128,56 @@ public struct RoomControlShellView: View {
             }
         }
         .background(BrandTokens.dark)
+    }
+
+    /// Returns true if this source is a BËTR presentation slot.
+    private func isPresentationSlot(_ source: SourceState) -> Bool {
+        source.name == PresentationSlotNames.slideshow
+            || source.name == PresentationSlotNames.presenterView
+    }
+
+    /// Source row with distinctive gold star icon for presentation slots (Task 97).
+    private func sourceRow(_ source: SourceState) -> some View {
+        HStack(spacing: 8) {
+            if isPresentationSlot(source) {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(BrandTokens.gold)
+                    .frame(width: 8)
+            } else {
+                Circle()
+                    .fill(source.isOnline ? .green : BrandTokens.warmGrey)
+                    .frame(width: 8, height: 8)
+            }
+            Text(source.name)
+                .font(BrandTokens.display(size: 12))
+                .foregroundStyle(
+                    isPresentationSlot(source)
+                        ? BrandTokens.gold
+                        : (source.isOnline ? BrandTokens.offWhite : BrandTokens.warmGrey)
+                )
+            if isPresentationSlot(source) {
+                Spacer()
+                warmBadgeDot(source.warmBadge)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+
+    private func warmBadgeDot(_ badge: WarmBadge) -> some View {
+        Circle()
+            .fill(warmBadgeColor(badge))
+            .frame(width: 6, height: 6)
+    }
+
+    private func warmBadgeColor(_ badge: WarmBadge) -> Color {
+        switch badge {
+        case .cold: return BrandTokens.warmGrey
+        case .warming: return BrandTokens.gold
+        case .warm: return BrandTokens.pgnGreen
+        case .failed: return BrandTokens.red
+        }
     }
 
     private var centerColumn: some View {
