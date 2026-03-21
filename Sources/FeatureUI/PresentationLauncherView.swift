@@ -60,7 +60,7 @@ public final class PresentationLauncherStore: ObservableObject {
                     self?.currentSlide = slide
                     self?.totalSlides = total
                 }
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1Hz
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // DOCUMENTED EXCEPTION: slide state polling, 1Hz, not media path
             }
         }
     }

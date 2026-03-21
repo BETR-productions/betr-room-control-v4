@@ -101,7 +101,7 @@ public actor CapacitySampler {
         samplingTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .seconds(1)) // DOCUMENTED EXCEPTION: capacity sampling, 1Hz, not media path
             }
         }
         Self.log.info("Capacity sampler started on interface \(self.interfaceName)")

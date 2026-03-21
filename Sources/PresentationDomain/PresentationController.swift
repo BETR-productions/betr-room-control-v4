@@ -207,9 +207,8 @@ public actor PresentationController {
         activeAppKind = kind
         activeFilePath = canonicalPath
 
-        // DOCUMENTED EXCEPTION: 800ms grace period for app launch
         if !wasRunning {
-            try? await Task.sleep(nanoseconds: PresentationConstants.appLaunchGraceMs * 1_000_000)
+            try? await Task.sleep(nanoseconds: PresentationConstants.appLaunchGraceMs * 1_000_000) // DOCUMENTED EXCEPTION: 800ms grace period for app launch
         }
 
         // Wait for metadata readiness (totalSlides > 0)
@@ -488,7 +487,7 @@ public actor PresentationController {
                 }
             }
             if count > 0 { return true }
-            try? await Task.sleep(nanoseconds: PresentationConstants.metadataPollMs * 1_000_000)
+            try? await Task.sleep(nanoseconds: PresentationConstants.metadataPollMs * 1_000_000) // DOCUMENTED EXCEPTION: metadata wait budget, not media path
         }
         return false
     }
@@ -507,7 +506,7 @@ public actor PresentationController {
                 }
             }
             if active { return true }
-            try? await Task.sleep(nanoseconds: PresentationConstants.verifyPollMs * 1_000_000)
+            try? await Task.sleep(nanoseconds: PresentationConstants.verifyPollMs * 1_000_000) // DOCUMENTED EXCEPTION: slideshow verification poll, not media path
         }
         return false
     }

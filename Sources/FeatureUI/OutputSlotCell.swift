@@ -29,7 +29,7 @@ struct OutputSlotCell: View {
                 } else if slot.sourceID == nil {
                     miniBadge("EMPTY", tint: BrandTokens.charcoal)
                 } else if !slot.isAvailable {
-                    miniBadge("OFF", tint: Color(hex: 0x6B7280))
+                    miniBadge("OFF", tint: BrandTokens.warmGrey)
                 }
             }
 

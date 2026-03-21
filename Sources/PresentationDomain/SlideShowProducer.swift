@@ -55,7 +55,7 @@ public actor SlideShowProducer {
         pollTask = Task { [weak self] in
             while let self = self, !Task.isCancelled {
                 await self.pollForWindow()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // DOCUMENTED EXCEPTION: window detection retry, not media path
             }
         }
     }

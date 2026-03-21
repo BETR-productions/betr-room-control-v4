@@ -242,7 +242,7 @@ private extension TimerProducer {
             let sleepUntil = frameStart
             let remaining = sleepUntil - .now
             if remaining > .zero {
-                try? await Task.sleep(for: remaining)
+                try? await Task.sleep(for: remaining) // DOCUMENTED EXCEPTION: timer frame pacing, not media hot path
             }
         }
     }

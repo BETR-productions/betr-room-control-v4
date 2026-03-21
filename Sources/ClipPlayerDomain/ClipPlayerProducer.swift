@@ -338,9 +338,8 @@ private extension ClipPlayerProducer {
             if nextDueSeconds.isInfinite { break }
 
             if nextDueSeconds > elapsed {
-                // DOCUMENTED EXCEPTION: PTS-paced sleep for clip playback timing
                 let sleepNs = UInt64(max(1_000_000, (nextDueSeconds - elapsed) * 1_000_000_000))
-                try? await Task.sleep(nanoseconds: sleepNs)
+                try? await Task.sleep(nanoseconds: sleepNs) // DOCUMENTED EXCEPTION: PTS-paced sleep for clip playback timing
                 continue
             }
 
@@ -402,7 +401,7 @@ private extension ClipPlayerProducer {
             let sleepUntil = frameStart
             let remaining = sleepUntil - .now
             if remaining > .zero {
-                try? await Task.sleep(for: remaining)
+                try? await Task.sleep(for: remaining) // DOCUMENTED EXCEPTION: still image dwell duration, not media hot path
             }
         }
 

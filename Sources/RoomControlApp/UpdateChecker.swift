@@ -33,7 +33,7 @@ final class UpdateChecker: ObservableObject {
             await self?.checkForUpdate()
             // Re-check every 4 hours
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 4 * 60 * 60 * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: 4 * 60 * 60 * 1_000_000_000) // DOCUMENTED EXCEPTION: update check interval, 4hr, not media path
                 guard !Task.isCancelled else { break }
                 await self?.checkForUpdate()
             }
