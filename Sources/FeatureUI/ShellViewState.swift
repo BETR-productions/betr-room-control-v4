@@ -5,11 +5,14 @@
 // Routing actions dispatch XPC commands via CoreAgentClient and update
 // local UI state optimistically. Incoming XPC events reconcile truth.
 
+import ClipPlayerDomain
 import Foundation
 import IOSurface
+import PresentationDomain
 import SwiftUI
 import RoutingDomain
 import RoomControlXPCContracts
+import TimerDomain
 import os
 
 // MARK: - Operation Modes
@@ -164,6 +167,15 @@ public final class ShellViewState: ObservableObject {
     @Published public var currentTransitionKind: TransitionKind = .cut
     @Published public var meterSnapshots: [String: MeterSnapshot] = [:]
     @Published public var healthSnapshot: AgentHealthSnapshot?
+
+    // MARK: - Sub-Stores (Task 131: column wiring)
+
+    /// Clip player playlist store — injected when ClipPlayerProducer is available.
+    @Published public var clipPlayerStore: ClipPlayerPlaylistStore?
+    /// Timer control store — injected when TimerProducer is available.
+    @Published public var timerStore: TimerControlStore?
+    /// Presentation launcher store — created immediately (no external dependency).
+    @Published public var presentationStore: PresentationLauncherStore = PresentationLauncherStore()
 
     /// Currently focused output card for keyboard navigation (Task 130).
     @Published public var focusedCardID: String?

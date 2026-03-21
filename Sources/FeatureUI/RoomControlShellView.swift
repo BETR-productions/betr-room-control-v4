@@ -1,5 +1,8 @@
 // RoomControlShellView — three-column resizable operator shell.
-// Left: sources/inputs. Center: outputs/routing. Right: tools/settings.
+// V3 layout match (Task 131):
+//   Left:   Source browser + Clip player + Timer
+//   Center: Presentation controls + Presenter view (slide notes)
+//   Right:  Output grid with add button + scrollable output tiles
 
 import PresentationDomain
 import RoutingDomain
@@ -69,7 +72,7 @@ public struct RoomControlShellView: View {
                 state.focusNextCard()
                 return .handled
             }
-            // 1–6: select slot in focused output (Task 130)
+            // 1-6: select slot in focused output (Task 130)
             if let digit = Int(String(press.characters)), digit >= 1, digit <= 6 {
                 handleSlotSelect(digit)
                 return .handled
@@ -82,7 +85,7 @@ public struct RoomControlShellView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            Text("BËTR Room Control")
+            Text("BETR Room Control")
                 .font(BrandTokens.display(size: 16, weight: .bold))
                 .foregroundStyle(BrandTokens.gold)
 
@@ -130,66 +133,68 @@ public struct RoomControlShellView: View {
         state.cards.filter { $0.programSlotID != nil }.count
     }
 
-    // MARK: - Columns
+    // MARK: - Left Column (v3: Sources + Clip Player + Timer)
 
     private var leftColumn: some View {
-        SourceBrowserView(state: state)
-            .background(BrandTokens.dark)
-    }
+        ScrollView {
+            VStack(spacing: 0) {
+                // Task 113/143: Source browser at top with warm badges
+                SourceBrowserView(state: state)
 
-    /// Returns true if this source is a BËTR presentation slot.
-    private func isPresentationSlot(_ source: SourceState) -> Bool {
-        source.name == PresentationSlotNames.slideshow
-            || source.name == PresentationSlotNames.presenterView
-    }
+                Divider().background(BrandTokens.charcoal)
 
-    /// Source row with distinctive gold star icon for presentation slots (Task 97).
-    private func sourceRow(_ source: SourceState) -> some View {
-        HStack(spacing: 8) {
-            if isPresentationSlot(source) {
-                Image(systemName: "star.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(BrandTokens.gold)
-                    .frame(width: 8)
-            } else {
-                Circle()
-                    .fill(source.isOnline ? .green : BrandTokens.warmGrey)
-                    .frame(width: 8, height: 8)
-            }
-            Text(source.name)
-                .font(BrandTokens.display(size: 12))
-                .foregroundStyle(
-                    isPresentationSlot(source)
-                        ? BrandTokens.gold
-                        : (source.isOnline ? BrandTokens.offWhite : BrandTokens.warmGrey)
-                )
-            if isPresentationSlot(source) {
-                Spacer()
-                warmBadgeDot(source.warmBadge)
+                // Task 132: Clip player playlist panel
+                if let clipStore = state.clipPlayerStore {
+                    ClipPlayerPlaylistView(store: clipStore)
+                    Divider().background(BrandTokens.charcoal)
+                }
+
+                // Task 133: Timer control panel
+                if let timerStore = state.timerStore {
+                    TimerControlView(store: timerStore)
+                }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .background(BrandTokens.dark)
     }
 
-    /// Task 98: Auto-warm indicator — pulses gold during .warming, solid green when .warm.
-    private func warmBadgeDot(_ badge: WarmBadge) -> some View {
-        WarmBadgeDotView(badge: badge)
-    }
-
-    private func warmBadgeColor(_ badge: WarmBadge) -> Color {
-        switch badge {
-        case .cold: return BrandTokens.warmGrey
-        case .warming: return BrandTokens.gold
-        case .warm: return BrandTokens.pgnGreen
-        case .failed: return BrandTokens.red
-        }
-    }
+    // MARK: - Center Column (v3: Presentation + Presenter View)
 
     private var centerColumn: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                // Task 134: Presentation launcher panel
+                PresentationLauncherView(store: state.presentationStore)
+
+                Divider().background(BrandTokens.charcoal)
+
+                // Task 135: Presenter view panel (slide notes)
+                presenterViewPanel
+            }
+        }
+        .background(BrandTokens.dark)
+    }
+
+    /// Presenter view panel — shows slide notes when available, placeholder otherwise.
+    /// Matches v3 PresenterStatusPanel layout.
+    private var presenterViewPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            panelHeader("PRESENTER VIEW")
+
+            Text("Slide notes and presenter state will appear here once slideshow mode is verified.")
+                .font(BrandTokens.display(size: 12))
+                .foregroundStyle(BrandTokens.warmGrey)
+        }
+        .padding(16)
+        .background(BrandTokens.surfaceDark)
+    }
+
+    // MARK: - Right Column (v3: Output Grid — moved from center)
+
+    private var rightColumn: some View {
         VStack(spacing: 0) {
-            // Header: title + capacity + add button (Task 122)
-            centerColumnHeader
+            // Header: title + capacity + add button (Task 122/136)
+            outputColumnHeader
 
             Divider()
                 .background(BrandTokens.charcoal)
@@ -204,7 +209,7 @@ public struct RoomControlShellView: View {
                         )
                     }
                     if state.cards.isEmpty {
-                        centerColumnEmptyState
+                        outputEmptyState
                     }
                 }
                 .padding(12)
@@ -217,9 +222,9 @@ public struct RoomControlShellView: View {
         .background(BrandTokens.dark)
     }
 
-    // MARK: - Center Column Header (Task 122)
+    // MARK: - Output Column Header (Task 122, moved to right column Task 136)
 
-    private var centerColumnHeader: some View {
+    private var outputColumnHeader: some View {
         HStack(spacing: 8) {
             panelHeader("OUTPUTS")
 
@@ -230,16 +235,21 @@ public struct RoomControlShellView: View {
 
             Spacer()
 
-            // Add output button (Task 122)
+            // Add output button — gold accent (Task 136)
             Button {
                 state.addOutput()
             } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
+                Label("Add Output", systemImage: "plus")
+                    .font(BrandTokens.display(size: 11, weight: .medium))
+                    .foregroundStyle(BrandTokens.dark)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(BrandTokens.gold)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
             .disabled(state.cards.count >= ShellViewState.maxOutputs)
+            .opacity(state.cards.count >= ShellViewState.maxOutputs ? 0.4 : 1.0)
             .help("Add output (\(ShellViewState.maxOutputs - state.cards.count) available)")
         }
         .padding(.horizontal, 12)
@@ -254,7 +264,7 @@ public struct RoomControlShellView: View {
         return BrandTokens.warmGrey
     }
 
-    private var centerColumnEmptyState: some View {
+    private var outputEmptyState: some View {
         VStack(spacing: 8) {
             Spacer().frame(height: 40)
             Image(systemName: "rectangle.stack.badge.plus")
@@ -263,26 +273,12 @@ public struct RoomControlShellView: View {
             Text("No outputs configured")
                 .font(BrandTokens.display(size: 12, weight: .medium))
                 .foregroundStyle(BrandTokens.warmGrey)
-            Text("Click + to add an output")
+            Text("Click \"Add Output\" to create one")
                 .font(BrandTokens.mono(size: 9))
                 .foregroundStyle(BrandTokens.warmGrey.opacity(0.6))
             Spacer().frame(height: 40)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private var rightColumn: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                panelHeader("TOOLS")
-                    .padding(16)
-                Text("Settings and tools panel")
-                    .font(BrandTokens.display(size: 12))
-                    .foregroundStyle(BrandTokens.warmGrey)
-                    .padding(.horizontal, 16)
-            }
-        }
-        .background(BrandTokens.dark)
     }
 
     // MARK: - Layout
@@ -311,11 +307,9 @@ public struct RoomControlShellView: View {
         centerColumnWidth = state.centerColumnWidth
     }
 
-    // MARK: - Helpers
-
     // MARK: - Keyboard Shortcuts (Task 130)
 
-    /// Handle 1–6 key press: arm PVW on the corresponding slot in the focused output.
+    /// Handle 1-6 key press: arm PVW on the corresponding slot in the focused output.
     private func handleSlotSelect(_ index: Int) {
         guard let cardID = state.focusedCardID,
               let card = state.cards.first(where: { $0.id == cardID }),
@@ -329,6 +323,8 @@ public struct RoomControlShellView: View {
         }
     }
 
+    // MARK: - Helpers
+
     private func panelHeader(_ title: String) -> some View {
         Text(title)
             .font(BrandTokens.display(size: 11, weight: .semibold))
@@ -340,7 +336,7 @@ public struct RoomControlShellView: View {
 // MARK: - Warm Badge Dot (Task 98)
 
 /// Animated warm badge indicator: pulses gold during .warming, solid green when .warm.
-private struct WarmBadgeDotView: View {
+struct WarmBadgeDotView: View {
     let badge: WarmBadge
     @State private var isPulsing = false
 
