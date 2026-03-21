@@ -194,9 +194,24 @@ final class UpdateChecker: ObservableObject {
     // MARK: - Version comparison
 
     private func isNewer(remote: String, than current: String) -> Bool {
-        let remoteNorm = normalizeVersion(remote)
-        let currentNorm = normalizeVersion(current)
-        return remoteNorm.lexicographicallyPrecedes(currentNorm) == false && remoteNorm != currentNorm
+        let remoteParts = normalizeVersion(remote)
+        let currentParts = normalizeVersion(current)
+
+        // Ignore any version in the legacy 0.9.x range — those are from v3 and must not
+        // be treated as upgrades. v4 versions start at 0.3.21.
+        if remoteParts.count >= 2, remoteParts[0] == 0, remoteParts[1] >= 9 {
+            return false
+        }
+
+        // Compare component by component (standard semver numeric comparison)
+        let maxLen = max(remoteParts.count, currentParts.count)
+        for i in 0..<maxLen {
+            let r = i < remoteParts.count ? remoteParts[i] : 0
+            let c = i < currentParts.count ? currentParts[i] : 0
+            if r > c { return true }
+            if r < c { return false }
+        }
+        return false // equal
     }
 
     private func normalizeVersion(_ version: String) -> [Int] {
