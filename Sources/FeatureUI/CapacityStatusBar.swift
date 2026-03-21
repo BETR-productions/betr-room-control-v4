@@ -8,7 +8,8 @@ struct CapacityStatusBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            badge("\(state.capacity.configuredOutputs)", label: "outputs")
+            // Output capacity indicator (Task 129)
+            outputCapacityBadge
             badge("\(state.capacity.discoveredSources)", label: "sources")
             badge(formatCPU(state.capacity.cpuPercent), label: "cpu")
             badge(formatGPU(state.capacity.estimatedGPUPressure), label: "gpu")
@@ -25,6 +26,30 @@ struct CapacityStatusBar: View {
         .padding(.horizontal, 16)
         .frame(height: 40)
         .background(BrandTokens.toolbarDark)
+    }
+
+    /// Output capacity: "Outputs: 2/5 (3 available)" with gold at 80%, red at max (Task 129).
+    private var outputCapacityBadge: some View {
+        let count = state.cards.count
+        let max = ShellViewState.maxOutputs
+        let available = max - count
+        let color: Color = {
+            if count >= max { return BrandTokens.red }
+            if count >= Int(ceil(Double(max) * 0.8)) { return BrandTokens.gold }
+            return BrandTokens.offWhite
+        }()
+
+        return HStack(spacing: 4) {
+            Text("\(count)/\(max)")
+                .font(BrandTokens.mono(size: 12))
+                .foregroundStyle(color)
+            Text("OUTPUTS")
+                .font(BrandTokens.mono(size: 9))
+                .foregroundStyle(BrandTokens.warmGrey)
+            Text("(\(available) avail)")
+                .font(BrandTokens.mono(size: 9))
+                .foregroundStyle(BrandTokens.warmGrey)
+        }
     }
 
     private func badge(_ value: String, label: String) -> some View {

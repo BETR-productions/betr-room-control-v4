@@ -51,6 +51,8 @@ public struct OutputCardState: Identifiable, Sendable {
     public var programSlotID: String?
     public var previewSlotID: String?
     public var listenerCount: Int
+    public var isAudioMuted: Bool
+    public var senderName: String
 
     public init(
         id: String,
@@ -58,7 +60,9 @@ public struct OutputCardState: Identifiable, Sendable {
         slots: [OutputSlotState] = [],
         programSlotID: String? = nil,
         previewSlotID: String? = nil,
-        listenerCount: Int = 0
+        listenerCount: Int = 0,
+        isAudioMuted: Bool = false,
+        senderName: String = ""
     ) {
         self.id = id
         self.name = name
@@ -66,6 +70,8 @@ public struct OutputCardState: Identifiable, Sendable {
         self.programSlotID = programSlotID
         self.previewSlotID = previewSlotID
         self.listenerCount = listenerCount
+        self.isAudioMuted = isAudioMuted
+        self.senderName = senderName
     }
 }
 
@@ -130,11 +136,22 @@ public struct CapacitySnapshot: Sendable {
     }
 }
 
+// MARK: - Output Create Config
+
+/// Configuration for creating a new output via XPC.
+struct OutputCreateConfig: Codable, Sendable {
+    let name: String
+    let slotCount: Int
+}
+
 // MARK: - Shell State
 
 @MainActor
 public final class ShellViewState: ObservableObject {
     private static let log = Logger(subsystem: "com.betr.room-control", category: "ShellViewState")
+
+    /// Maximum number of concurrent outputs (capacity gating — Task 115).
+    public static let maxOutputs = 5
 
     @Published public var operationMode: OperationMode = .rehearsal
     @Published public var playbackMode: PlaybackMode = .manual
@@ -147,6 +164,9 @@ public final class ShellViewState: ObservableObject {
     @Published public var currentTransitionKind: TransitionKind = .cut
     @Published public var meterSnapshots: [String: MeterSnapshot] = [:]
     @Published public var healthSnapshot: AgentHealthSnapshot?
+
+    /// Currently focused output card for keyboard navigation (Task 130).
+    @Published public var focusedCardID: String?
 
     /// Render feeds for IOSurface thumbnails, keyed by sourceID.
     /// Each slot cell looks up its render feed by sourceID.
@@ -203,11 +223,11 @@ public final class ShellViewState: ObservableObject {
         case .warmStateChanged(let sourceID, let state):
             updateWarmBadge(sourceID: sourceID, state: state)
 
-        case .switchCompleted(_, let toSourceID):
-            updateProgramIndicator(sourceID: toSourceID)
+        case .switchCompleted(let outputID, _, let toSourceID):
+            updateProgramIndicator(outputID: outputID, sourceID: toSourceID)
 
-        case .switchAborted(let toSourceID, let reason):
-            Self.log.warning("Switch aborted to \(toSourceID): \(reason)")
+        case .switchAborted(let outputID, let toSourceID, let reason):
+            Self.log.warning("Switch aborted on output \(outputID) to \(toSourceID): \(reason)")
 
         case .metersUpdated(let snapshots):
             for snapshot in snapshots {
@@ -225,6 +245,22 @@ public final class ShellViewState: ObservableObject {
 
         case .thumbnailReady(let sourceID, let surfaceID, let width, let height):
             updateThumbnail(sourceID: sourceID, surfaceID: surfaceID, width: width, height: height)
+
+        case .outputCreated(let descriptorData):
+            Self.log.info("Output created event received")
+            // TODO: Decode descriptorData and reconcile with local cards
+            _ = descriptorData
+
+        case .outputRemoved(let outputID):
+            Self.log.info("Output removed event: \(outputID)")
+            cards.removeAll { $0.id == outputID }
+            capacity.configuredOutputs = cards.count
+
+        case .outputRenamed(let outputID, let newName):
+            if let idx = cards.firstIndex(where: { $0.id == outputID }) {
+                cards[idx].name = newName
+                cards[idx].senderName = "BETR \(newName)"
+            }
 
         case .connectionReady:
             Self.log.info("Core agent connection ready")
@@ -330,60 +366,59 @@ public final class ShellViewState: ObservableObject {
         feed.bind(surface: surface, sequence: thumbnailSequence)
     }
 
-    private func updateProgramIndicator(sourceID: String) {
-        // Find the card/slot with this source and update program indicator
-        for cardIdx in cards.indices {
-            for slot in cards[cardIdx].slots {
-                if slot.sourceID == sourceID {
-                    cards[cardIdx].programSlotID = slot.id
-                    Self.log.info("Program indicator updated: card=\(self.cards[cardIdx].id) slot=\(slot.id)")
-                    return
-                }
+    private func updateProgramIndicator(outputID: String, sourceID: String) {
+        guard let cardIdx = cards.firstIndex(where: { $0.id == outputID }) else {
+            Self.log.warning("switchCompleted for unknown output \(outputID)")
+            return
+        }
+        for slot in cards[cardIdx].slots {
+            if slot.sourceID == sourceID {
+                cards[cardIdx].programSlotID = slot.id
+                Self.log.info("Program indicator updated: output=\(outputID) slot=\(slot.id)")
+                return
             }
         }
     }
 
-    // MARK: - Routing Actions (dispatch XPC commands)
+    // MARK: - Per-Output Routing Actions (Tasks 123, 124)
 
-    /// Set preview slot — dispatches setPreview XPC command.
+    /// Set preview slot on a specific output — dispatches per-output setPreview XPC.
     public func setPreviewSlot(_ cardID: String, slotID: String?) {
         guard let idx = cards.firstIndex(where: { $0.id == cardID }) else { return }
+        // PVW != PGM enforced (Task 124)
+        if let slotID, slotID == cards[idx].programSlotID { return }
         cards[idx].previewSlotID = slotID
 
-        // Dispatch XPC command if we have a source to preview
-        if let slotID,
-           let slot = cards[idx].slots.first(where: { $0.id == slotID }),
-           let sourceID = slot.sourceID {
+        if let slotID {
             Task {
                 guard let coreAgent else { return }
-                let success = await coreAgent.setPreview(sourceID: sourceID)
+                let success = await coreAgent.setPreview(outputID: cardID, slotID: slotID)
                 if !success {
-                    Self.log.error("setPreview XPC command failed for source \(sourceID)")
+                    Self.log.error("setPreview XPC failed: output=\(cardID) slot=\(slotID)")
                 }
             }
         }
     }
 
-    /// Take program slot — dispatches setProgram XPC command with current transition.
+    /// Take program slot on a specific output — dispatches per-output setProgram XPC.
+    /// Each output is independent (Task 124).
     public func takeProgramSlot(_ cardID: String, slotID: String) {
         guard let idx = cards.firstIndex(where: { $0.id == cardID }) else { return }
+        guard cards[idx].slots.contains(where: { $0.id == slotID && $0.sourceID != nil }) else { return }
 
-        // Find the source in the slot
-        guard let slot = cards[idx].slots.first(where: { $0.id == slotID }),
-              let sourceID = slot.sourceID else { return }
-
-        // Optimistic UI update — set program immediately for responsive feel.
-        // XPC switchCompleted event will reconcile truth.
+        // Optimistic UI update for responsive feel.
         cards[idx].programSlotID = slotID
+        // Clear preview if it was this slot (PVW != PGM)
+        if cards[idx].previewSlotID == slotID {
+            cards[idx].previewSlotID = nil
+        }
 
-        // Dispatch XPC command
         let transition = TransitionConfig(kind: currentTransitionKind)
         Task {
             guard let coreAgent else { return }
-            let success = await coreAgent.setProgram(sourceID: sourceID, transition: transition)
+            let success = await coreAgent.setProgram(outputID: cardID, slotID: slotID, transition: transition)
             if !success {
-                Self.log.error("setProgram XPC command failed for source \(sourceID)")
-                // Revert optimistic update on failure
+                Self.log.error("setProgram XPC failed: output=\(cardID) slot=\(slotID)")
                 await MainActor.run {
                     if self.cards[idx].programSlotID == slotID {
                         self.cards[idx].programSlotID = nil
@@ -393,16 +428,33 @@ public final class ShellViewState: ObservableObject {
         }
     }
 
+    /// Assign a source to a slot — dispatches assignSlotSource XPC (Task 123).
     public func assignSource(_ sourceID: String, to cardID: String, slotID: String) {
         guard let cardIdx = cards.firstIndex(where: { $0.id == cardID }),
               let slotIdx = cards[cardIdx].slots.firstIndex(where: { $0.id == slotID }) else { return }
-        cards[cardIdx].slots[slotIdx].sourceID = sourceID
         let source = sources.first(where: { $0.id == sourceID })
+
+        // Optimistic local update
+        cards[cardIdx].slots[slotIdx].sourceID = sourceID
         cards[cardIdx].slots[slotIdx].displayName = source?.name
         cards[cardIdx].slots[slotIdx].isAvailable = source?.isOnline ?? false
         cards[cardIdx].slots[slotIdx].warmBadge = source?.warmBadge ?? .cold
+
+        Task {
+            guard let coreAgent else { return }
+            let success = await coreAgent.assignSlotSource(
+                outputID: cardID,
+                slotID: slotID,
+                sourceID: sourceID,
+                sourceNameSnapshot: source?.name
+            )
+            if !success {
+                Self.log.error("assignSlotSource XPC failed: output=\(cardID) slot=\(slotID)")
+            }
+        }
     }
 
+    /// Clear a slot on an output — dispatches clearSlot XPC (Task 123).
     public func clearSlot(_ cardID: String, slotID: String) {
         guard let cardIdx = cards.firstIndex(where: { $0.id == cardID }),
               let slotIdx = cards[cardIdx].slots.firstIndex(where: { $0.id == slotID }) else { return }
@@ -410,10 +462,125 @@ public final class ShellViewState: ObservableObject {
         cards[cardIdx].slots[slotIdx].displayName = nil
         cards[cardIdx].slots[slotIdx].isAvailable = true
         cards[cardIdx].slots[slotIdx].warmBadge = .cold
+
+        Task {
+            guard let coreAgent else { return }
+            let success = await coreAgent.clearSlot(outputID: cardID, slotID: slotID)
+            if !success {
+                Self.log.error("clearSlot XPC failed: output=\(cardID) slot=\(slotID)")
+            }
+        }
     }
 
     public func commitLayout(leading: Double, center: Double) {
         leadingColumnWidth = leading
         centerColumnWidth = center
+    }
+
+    // MARK: - Output Management (Tasks 121, 122, 128)
+
+    /// Create a new output card with 6 empty slots.
+    /// Returns the new card ID, or nil if at capacity.
+    @discardableResult
+    public func addOutput(name: String? = nil) -> String? {
+        guard cards.count < Self.maxOutputs else { return nil }
+        let outputNumber = cards.count + 1
+        let outputName = name ?? "Output \(outputNumber)"
+        let slots = (1...6).map { OutputSlotState(id: "\($0)") }
+        let card = OutputCardState(
+            id: UUID().uuidString,
+            name: outputName,
+            slots: slots,
+            senderName: "BETR \(outputName)"
+        )
+        cards.append(card)
+        focusedCardID = card.id
+        capacity.configuredOutputs = cards.count
+
+        // Dispatch XPC createOutput
+        let outputConfig = OutputCreateConfig(name: outputName, slotCount: 6)
+        if let configData = try? JSONEncoder().encode(outputConfig) {
+            Task {
+                guard let coreAgent else { return }
+                _ = await coreAgent.createOutput(configData: configData)
+            }
+        }
+
+        Self.log.info("Output added: \(outputName) (\(card.id))")
+        return card.id
+    }
+
+    /// Remove an output card by ID.
+    public func removeOutput(_ cardID: String) {
+        cards.removeAll { $0.id == cardID }
+        if focusedCardID == cardID {
+            focusedCardID = cards.first?.id
+        }
+        capacity.configuredOutputs = cards.count
+
+        Task {
+            guard let coreAgent else { return }
+            _ = await coreAgent.removeOutput(outputID: cardID)
+        }
+
+        Self.log.info("Output removed: \(cardID)")
+    }
+
+    /// Rename an output card.
+    public func renameOutput(_ cardID: String, name: String) {
+        guard let idx = cards.firstIndex(where: { $0.id == cardID }) else { return }
+        cards[idx].name = name
+        cards[idx].senderName = "BETR \(name)"
+
+        Task {
+            guard let coreAgent else { return }
+            _ = await coreAgent.renameOutput(outputID: cardID, newName: name)
+        }
+    }
+
+    /// Toggle audio mute on an output card.
+    public func toggleMute(_ cardID: String) {
+        guard let idx = cards.firstIndex(where: { $0.id == cardID }) else { return }
+        cards[idx].isAudioMuted.toggle()
+        let muted = cards[idx].isAudioMuted
+
+        Task {
+            guard let coreAgent else { return }
+            _ = await coreAgent.setOutputMuted(outputID: cardID, muted: muted)
+        }
+    }
+
+    /// Create the default "Output 1" if no outputs exist (Task 128).
+    /// Called on first launch or when persisted topology is empty.
+    public func ensureDefaultOutput() {
+        guard cards.isEmpty else { return }
+        addOutput(name: "Output 1")
+        Self.log.info("Default output created on first launch")
+    }
+
+    // MARK: - Focus Navigation (Task 130)
+
+    /// Move focus to the next output card (Tab).
+    public func focusNextCard() {
+        guard !cards.isEmpty else { return }
+        if let currentID = focusedCardID,
+           let currentIdx = cards.firstIndex(where: { $0.id == currentID }) {
+            let nextIdx = (currentIdx + 1) % cards.count
+            focusedCardID = cards[nextIdx].id
+        } else {
+            focusedCardID = cards.first?.id
+        }
+    }
+
+    /// Move focus to the previous output card (Shift+Tab).
+    public func focusPreviousCard() {
+        guard !cards.isEmpty else { return }
+        if let currentID = focusedCardID,
+           let currentIdx = cards.firstIndex(where: { $0.id == currentID }) {
+            let prevIdx = (currentIdx - 1 + cards.count) % cards.count
+            focusedCardID = cards[prevIdx].id
+        } else {
+            focusedCardID = cards.last?.id
+        }
     }
 }
