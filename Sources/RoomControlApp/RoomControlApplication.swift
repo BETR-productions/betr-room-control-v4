@@ -14,6 +14,7 @@ final class RoomControlAppDelegate: NSObject, NSApplicationDelegate {
     let capacitySampler = CapacitySampler()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UpdateChecker.shared.startChecking()
         Task {
             await coreAgent.connect()
         }
@@ -37,17 +38,20 @@ struct RoomControlApplication: App {
 
     var body: some Scene {
         WindowGroup {
-            RoomControlShellView(state: shellState)
-                .frame(minWidth: 1200, minHeight: 700)
-                .task {
-                    shellState.bind(
-                        coreAgent: appDelegate.coreAgent,
-                        capacitySampler: appDelegate.capacitySampler
-                    )
-                }
-                .onDisappear {
-                    shellState.unbind()
-                }
+            VStack(spacing: 0) {
+                UpdateBannerView()
+                RoomControlShellView(state: shellState)
+            }
+            .frame(minWidth: 1200, minHeight: 700)
+            .task {
+                shellState.bind(
+                    coreAgent: appDelegate.coreAgent,
+                    capacitySampler: appDelegate.capacitySampler
+                )
+            }
+            .onDisappear {
+                shellState.unbind()
+            }
         }
         .windowStyle(.hiddenTitleBar)
     }
