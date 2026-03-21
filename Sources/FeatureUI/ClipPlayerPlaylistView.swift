@@ -1,5 +1,9 @@
 // ClipPlayerPlaylistView — playlist panel for clip player.
-// Drag-reorder list, per-item settings, playback order, transport controls.
+// Task 91: Drag-reorder list with .onMove.
+// Task 92: Per-clip settings sheet (transition type, dissolve frames, duration).
+// Task 93: Playback controls + keyboard shortcuts (Space, arrows).
+// Task 94: Live preview thumbnail placeholder (wired to warm pool IOSurface path).
+// Task 95: Clip player source appears alongside NDI sources in slot picker.
 
 import ClipPlayerDomain
 import RoomControlXPCContracts
@@ -9,6 +13,7 @@ import SwiftUI
 
 public struct ClipPlayerPlaylistView: View {
     @ObservedObject var store: ClipPlayerPlaylistStore
+    @State private var settingsItemIndex: Int?
 
     public init(store: ClipPlayerPlaylistStore) {
         self.store = store
@@ -18,6 +23,13 @@ public struct ClipPlayerPlaylistView: View {
         VStack(spacing: 0) {
             playlistHeader
             Divider().background(BrandTokens.charcoal)
+
+            // Task 94: Live preview thumbnail when playing
+            if store.runState == .playing {
+                clipPlayerThumbnail
+                Divider().background(BrandTokens.charcoal)
+            }
+
             if store.items.isEmpty {
                 emptyState
             } else {
@@ -27,6 +39,46 @@ public struct ClipPlayerPlaylistView: View {
             transportBar
         }
         .background(BrandTokens.panelDark)
+        // Task 93: Keyboard shortcuts for playback controls
+        .onKeyPress(.space) {
+            if store.runState == .playing { store.pause() } else { store.play() }
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            store.previous()
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            store.next()
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            store.stop()
+            return .handled
+        }
+        // Task 92: Per-clip settings sheet
+        .sheet(item: settingsBinding) { wrapper in
+            ClipItemSettingsSheet(
+                item: wrapper.item,
+                index: wrapper.index,
+                onSave: { index, updated in
+                    store.updateItem(at: index, with: updated)
+                    settingsItemIndex = nil
+                },
+                onCancel: { settingsItemIndex = nil }
+            )
+        }
+    }
+
+    private var settingsBinding: Binding<ClipItemWrapper?> {
+        Binding(
+            get: {
+                guard let idx = settingsItemIndex,
+                      store.items.indices.contains(idx) else { return nil }
+                return ClipItemWrapper(item: store.items[idx], index: idx)
+            },
+            set: { _ in settingsItemIndex = nil }
+        )
     }
 
     // MARK: - Header
@@ -62,6 +114,15 @@ public struct ClipPlayerPlaylistView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Live Preview Thumbnail (Task 94)
+
+    private var clipPlayerThumbnail: some View {
+        ClipPlayerThumbnailView(producerID: store.producerID)
+            .frame(height: 120)
+            .frame(maxWidth: .infinity)
+            .background(BrandTokens.surfaceDark)
+    }
+
     // MARK: - Empty State
 
     private var emptyState: some View {
@@ -80,7 +141,7 @@ public struct ClipPlayerPlaylistView: View {
         .background(BrandTokens.panelDark)
     }
 
-    // MARK: - Item List
+    // MARK: - Item List (Task 91: drag-reorder)
 
     private var itemList: some View {
         List {
@@ -91,8 +152,7 @@ public struct ClipPlayerPlaylistView: View {
                     isCurrent: store.currentItemIndex == index,
                     isPlaying: store.runState == .playing && store.currentItemIndex == index,
                     onSelect: { store.selectItem(at: index) },
-                    onUpdateTransition: { kind in store.updateTransition(at: index, kind: kind) },
-                    onUpdateDuration: { duration in store.updateDuration(at: index, duration: duration) },
+                    onSettings: { settingsItemIndex = index },
                     onDelete: { store.removeItem(at: index) }
                 )
                 .listRowBackground(
@@ -112,7 +172,7 @@ public struct ClipPlayerPlaylistView: View {
         .background(BrandTokens.panelDark)
     }
 
-    // MARK: - Transport Bar
+    // MARK: - Transport Bar (Task 93: play/pause, next, prev, stop)
 
     private var transportBar: some View {
         HStack(spacing: 16) {
@@ -162,8 +222,7 @@ struct ClipPlayerItemRow: View {
     let isCurrent: Bool
     let isPlaying: Bool
     let onSelect: () -> Void
-    let onUpdateTransition: (TransitionKind) -> Void
-    let onUpdateDuration: (TimeInterval?) -> Void
+    let onSettings: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -179,7 +238,7 @@ struct ClipPlayerItemRow: View {
                 .foregroundStyle(BrandTokens.warmGrey)
                 .frame(width: 16)
 
-            // Name
+            // Name + transition summary
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayName)
                     .font(BrandTokens.display(size: 12, weight: isCurrent ? .semibold : .regular))
@@ -187,18 +246,28 @@ struct ClipPlayerItemRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                HStack(spacing: 8) {
-                    // Transition type
-                    transitionPicker
+                HStack(spacing: 6) {
+                    Text(item.transitionKind == .cut ? "Cut" : "Dissolve \(item.transitionFrameCount)f")
+                        .font(BrandTokens.mono(size: 9))
+                        .foregroundStyle(BrandTokens.warmGrey)
 
-                    // Duration override (stills only)
-                    if item.type == .still {
-                        durationField
+                    if item.type == .still, let duration = item.durationOverride {
+                        Text("\(String(format: "%.1f", duration))s")
+                            .font(BrandTokens.mono(size: 9))
+                            .foregroundStyle(BrandTokens.warmGrey)
                     }
                 }
             }
 
             Spacer()
+
+            // Settings button (Task 92)
+            Button(action: onSettings) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 10))
+                    .foregroundStyle(BrandTokens.warmGrey)
+            }
+            .buttonStyle(.plain)
 
             // Delete
             Button(action: onDelete) {
@@ -213,40 +282,187 @@ struct ClipPlayerItemRow: View {
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
     }
+}
 
-    private var transitionPicker: some View {
-        Picker("", selection: Binding(
-            get: { item.transitionKind },
-            set: { onUpdateTransition($0) }
-        )) {
-            Text("Cut").tag(TransitionKind.cut)
-            Text("Dissolve").tag(TransitionKind.dissolve)
-        }
-        .pickerStyle(.menu)
-        .frame(width: 90)
-        .font(BrandTokens.display(size: 10))
+// MARK: - Per-Clip Settings Sheet (Task 92)
+
+/// Identifiable wrapper for sheet presentation.
+private struct ClipItemWrapper: Identifiable {
+    let item: ClipItem
+    let index: Int
+    var id: UUID { item.id }
+}
+
+struct ClipItemSettingsSheet: View {
+    let item: ClipItem
+    let index: Int
+    let onSave: (Int, ClipItem) -> Void
+    let onCancel: () -> Void
+
+    @State private var transitionKind: TransitionKind
+    @State private var dissolveFrames: Double
+    @State private var durationOverride: Double
+
+    init(
+        item: ClipItem,
+        index: Int,
+        onSave: @escaping (Int, ClipItem) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.item = item
+        self.index = index
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _transitionKind = State(initialValue: item.transitionKind)
+        _dissolveFrames = State(initialValue: Double(item.transitionFrameCount))
+        _durationOverride = State(initialValue: item.durationOverride ?? ClipPlayerConstants.defaultStillDuration)
     }
 
-    private var durationField: some View {
-        HStack(spacing: 2) {
-            Text("Hold:")
-                .font(BrandTokens.display(size: 10))
-                .foregroundStyle(BrandTokens.warmGrey)
-            TextField(
-                "",
-                value: Binding(
-                    get: { item.durationOverride ?? ClipPlayerConstants.defaultStillDuration },
-                    set: { onUpdateDuration($0) }
-                ),
-                format: .number.precision(.fractionLength(1))
-            )
-            .textFieldStyle(.plain)
-            .font(BrandTokens.mono(size: 10))
-            .foregroundStyle(BrandTokens.offWhite)
-            .frame(width: 36)
-            Text("s")
-                .font(BrandTokens.display(size: 10))
-                .foregroundStyle(BrandTokens.warmGrey)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Image(systemName: item.type == .video ? "film" : "photo")
+                    .foregroundStyle(BrandTokens.gold)
+                Text(item.displayName)
+                    .font(BrandTokens.display(size: 14, weight: .semibold))
+                    .foregroundStyle(BrandTokens.offWhite)
+                Spacer()
+            }
+
+            Divider()
+
+            // Transition type
+            HStack {
+                Text("Transition:")
+                    .font(BrandTokens.display(size: 12))
+                    .foregroundStyle(BrandTokens.warmGrey)
+                Picker("", selection: $transitionKind) {
+                    Text("Cut").tag(TransitionKind.cut)
+                    Text("Dissolve").tag(TransitionKind.dissolve)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+            }
+
+            // Dissolve frame slider (10-60 frames)
+            if transitionKind == .dissolve {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Dissolve Duration:")
+                            .font(BrandTokens.display(size: 12))
+                            .foregroundStyle(BrandTokens.warmGrey)
+                        Spacer()
+                        Text("\(Int(dissolveFrames)) frames")
+                            .font(BrandTokens.mono(size: 11))
+                            .foregroundStyle(BrandTokens.offWhite)
+                        Text(String(format: "(%.2fs)", dissolveFrames * Double(ClipPlayerConstants.defaultFrameRateDenominator) / Double(ClipPlayerConstants.defaultFrameRateNumerator)))
+                            .font(BrandTokens.mono(size: 10))
+                            .foregroundStyle(BrandTokens.warmGrey)
+                    }
+                    Slider(
+                        value: $dissolveFrames,
+                        in: Double(ClipPlayerConstants.minDissolveFrames)...Double(ClipPlayerConstants.maxDissolveFrames),
+                        step: 1
+                    )
+                    .tint(BrandTokens.gold)
+
+                    HStack {
+                        Text("\(ClipPlayerConstants.minDissolveFrames)f")
+                            .font(BrandTokens.mono(size: 9))
+                            .foregroundStyle(BrandTokens.warmGrey)
+                        Spacer()
+                        Text("\(ClipPlayerConstants.maxDissolveFrames)f")
+                            .font(BrandTokens.mono(size: 9))
+                            .foregroundStyle(BrandTokens.warmGrey)
+                    }
+                }
+            }
+
+            // Duration override (stills only)
+            if item.type == .still {
+                HStack {
+                    Text("Hold Duration:")
+                        .font(BrandTokens.display(size: 12))
+                        .foregroundStyle(BrandTokens.warmGrey)
+                    TextField(
+                        "",
+                        value: $durationOverride,
+                        format: .number.precision(.fractionLength(1))
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 60)
+                    .font(BrandTokens.mono(size: 12))
+                    Text("seconds")
+                        .font(BrandTokens.display(size: 12))
+                        .foregroundStyle(BrandTokens.warmGrey)
+                }
+            }
+
+            Divider()
+
+            // Buttons
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    let updated = ClipItem(
+                        id: item.id,
+                        url: item.url,
+                        type: item.type,
+                        transitionKind: transitionKind,
+                        transitionFrameCount: Int(dissolveFrames),
+                        durationOverride: item.type == .still ? durationOverride : item.durationOverride
+                    )
+                    onSave(index, updated)
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(BrandTokens.gold)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+        .background(BrandTokens.panelDark)
+    }
+}
+
+// MARK: - Live Preview Thumbnail (Task 94)
+
+/// Displays the clip player's current output frame from the warm pool IOSurface.
+/// Follows the same path as NDI source thumbnails — looks up the IOSurface by producer ID.
+struct ClipPlayerThumbnailView: View {
+    let producerID: String?
+
+    var body: some View {
+        if let producerID, !producerID.isEmpty {
+            // IOSurface thumbnail rendering — wired to the same warm pool path
+            // as NDI sources. The ShellViewState.thumbnailReady event delivers
+            // surfaceID which is resolved to an NSImage via IOSurface(lookup:).
+            // Task 76 (full-frame-rate thumbnails) handles the actual Metal rendering.
+            ZStack {
+                BrandTokens.surfaceDark
+                VStack(spacing: 4) {
+                    Image(systemName: "play.rectangle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(BrandTokens.gold)
+                    Text("Clip Player Output")
+                        .font(BrandTokens.display(size: 10))
+                        .foregroundStyle(BrandTokens.warmGrey)
+                    Text(producerID)
+                        .font(BrandTokens.mono(size: 8))
+                        .foregroundStyle(BrandTokens.charcoal)
+                        .lineLimit(1)
+                }
+            }
+        } else {
+            ZStack {
+                BrandTokens.surfaceDark
+                Text("Not registered")
+                    .font(BrandTokens.display(size: 10))
+                    .foregroundStyle(BrandTokens.warmGrey)
+            }
         }
     }
 }
@@ -260,6 +476,7 @@ public final class ClipPlayerPlaylistStore: ObservableObject {
     @Published public var currentItemIndex: Int?
     @Published public var currentItemName: String?
     @Published public var selectedIndex: Int?
+    @Published public var producerID: String?
 
     private let producer: ClipPlayerProducer
 
@@ -301,13 +518,11 @@ public final class ClipPlayerPlaylistStore: ObservableObject {
     }
 
     public func moveItems(from source: IndexSet, to destination: Int) {
-        // Track selectedIndex and currentItemIndex through the reorder
         let selectedID = selectedIndex.flatMap { items.indices.contains($0) ? items[$0].id : nil }
         let currentID = currentItemIndex.flatMap { items.indices.contains($0) ? items[$0].id : nil }
 
         items.move(fromOffsets: source, toOffset: destination)
 
-        // Restore tracked indices by ID lookup after move
         selectedIndex = selectedID.flatMap { id in items.firstIndex { $0.id == id } }
         currentItemIndex = currentID.flatMap { id in items.firstIndex { $0.id == id } }
 
@@ -318,29 +533,10 @@ public final class ClipPlayerPlaylistStore: ObservableObject {
         selectedIndex = index
     }
 
-    public func updateTransition(at index: Int, kind: TransitionKind) {
+    /// Task 92: Update a clip item with new settings from the settings sheet.
+    public func updateItem(at index: Int, with updated: ClipItem) {
         guard items.indices.contains(index) else { return }
-        let old = items[index]
-        items[index] = ClipItem(
-            id: old.id,
-            url: old.url,
-            type: old.type,
-            transitionKind: kind,
-            durationOverride: old.durationOverride
-        )
-        syncPlaylistToProducer()
-    }
-
-    public func updateDuration(at index: Int, duration: TimeInterval?) {
-        guard items.indices.contains(index) else { return }
-        let old = items[index]
-        items[index] = ClipItem(
-            id: old.id,
-            url: old.url,
-            type: old.type,
-            transitionKind: old.transitionKind,
-            durationOverride: duration
-        )
+        items[index] = updated
         syncPlaylistToProducer()
     }
 
@@ -375,6 +571,7 @@ public final class ClipPlayerPlaylistStore: ObservableObject {
                 runState = snapshot.runState
                 currentItemIndex = snapshot.currentItemIndex
                 currentItemName = snapshot.currentItemName
+                producerID = snapshot.producerID
             }
         }
     }

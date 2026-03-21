@@ -30,6 +30,7 @@ public struct ClipItem: Codable, Sendable, Equatable, Identifiable {
     public let url: URL
     public let type: ClipItemType
     public let transitionKind: TransitionKind
+    public let transitionFrameCount: Int
     public let durationOverride: TimeInterval?
 
     public init(
@@ -37,18 +38,25 @@ public struct ClipItem: Codable, Sendable, Equatable, Identifiable {
         url: URL,
         type: ClipItemType,
         transitionKind: TransitionKind = .cut,
+        transitionFrameCount: Int = ClipPlayerConstants.defaultDissolveFrames,
         durationOverride: TimeInterval? = nil
     ) {
         self.id = id
         self.url = url
         self.type = type
         self.transitionKind = transitionKind
+        self.transitionFrameCount = transitionFrameCount
         self.durationOverride = durationOverride
     }
 
     /// Display name derived from the URL filename.
     public var displayName: String {
         url.deletingPathExtension().lastPathComponent
+    }
+
+    /// Transition duration in seconds based on frame count at 29.97fps.
+    public var transitionDurationSeconds: TimeInterval {
+        TimeInterval(transitionFrameCount) * TimeInterval(ClipPlayerConstants.defaultFrameRateDenominator) / TimeInterval(ClipPlayerConstants.defaultFrameRateNumerator)
     }
 }
 
@@ -109,8 +117,11 @@ public struct ClipPlayerSnapshot: Codable, Sendable, Equatable {
 // MARK: - Constants
 
 public enum ClipPlayerConstants {
-    public static let producerName = "BËTR Clip Player"
+    public static let producerName = "BETR Clip Player"
     public static let defaultStillDuration: TimeInterval = 5.0
+    public static let defaultDissolveFrames = 15
+    public static let minDissolveFrames = 10
+    public static let maxDissolveFrames = 60
     public static let defaultFrameRateNumerator = 30_000
     public static let defaultFrameRateDenominator = 1_001
     public static let defaultWidth = 1920
