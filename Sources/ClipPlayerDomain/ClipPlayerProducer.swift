@@ -1,5 +1,6 @@
 // ClipPlayerProducer — local producer for media clip playback.
 // Registers with BETRCoreAgent, decodes via AVAssetReader, pushes frames via IOSurface XPC.
+// Audio pushed at OutputAudioBufferSizing.sampleCount per buffer — never 48000 samples at once.
 
 import AVFoundation
 import CoreGraphics
@@ -32,6 +33,7 @@ public actor ClipPlayerProducer {
     private var surface: IOSurface?
     private var videoSequence: UInt64 = 0
     private var audioSequence: UInt64 = 0
+    private var audioBufferIndex: UInt64 = 0
 
     // MARK: - Shuffle
 
@@ -141,6 +143,16 @@ public actor ClipPlayerProducer {
         notifyStateChange()
     }
 
+    /// Current playlist items (for persistence).
+    public func currentItems() -> [ClipItem] {
+        items
+    }
+
+    /// Current playback order (for persistence).
+    public func currentPlaybackOrder() -> PlaybackOrder {
+        playbackOrder
+    }
+
     // MARK: - Transport Controls
 
     public func play() {
@@ -165,6 +177,7 @@ public actor ClipPlayerProducer {
         playbackTask = nil
         runState = .stopped
         currentItemIndex = items.isEmpty ? nil : 0
+        audioBufferIndex = 0
         notifyStateChange()
     }
 
@@ -237,6 +250,7 @@ private extension ClipPlayerProducer {
         }
         runState = .playing
         currentItemIndex = index
+        audioBufferIndex = 0
         if playbackOrder == .random {
             rebuildShuffleOrder(startingAt: index)
         }
@@ -258,6 +272,12 @@ private extension ClipPlayerProducer {
             notifyStateChange()
 
             let item = items[itemIndex]
+
+            // Task 53: Signal transition to Core's dissolve engine on clip advance.
+            if itemIndex != startIndex || nextIdx != Optional(startIndex) {
+                signalClipTransition(for: item)
+            }
+
             let didPlay: Bool
 
             switch item.type {
@@ -278,6 +298,8 @@ private extension ClipPlayerProducer {
         }
     }
 
+    // Task 50: AVAssetReader decode loop with IOSurface-backed CVPixelBuffer.
+    // PTS-paced frame push via pushLocalVideoFrame XPC.
     func playVideoItem(_ item: ClipItem) async -> Bool {
         let readerContext = VideoReaderContext(
             url: item.url,
@@ -288,7 +310,6 @@ private extension ClipPlayerProducer {
             return false
         }
 
-        signalSourceSwitch(for: item)
         pushVideoFrame(firstVideo.frameData)
 
         var nextVideo = readerContext.nextVideoSample()
@@ -297,6 +318,14 @@ private extension ClipPlayerProducer {
         let zeroPTS = min(
             firstVideo.ptsSeconds,
             nextAudio?.ptsSeconds ?? firstVideo.ptsSeconds
+        )
+
+        // Audio slicing state (Task 51): re-chunk decoded audio to correct buffer sizes
+        var audioSlicer = AudioSlicer(
+            audioBufferIndex: audioBufferIndex,
+            sampleRate: 48_000,
+            frameRateNumerator: videoFormat.frameRateNumerator,
+            frameRateDenominator: videoFormat.frameRateDenominator
         )
 
         while !Task.isCancelled {
@@ -309,6 +338,7 @@ private extension ClipPlayerProducer {
             if nextDueSeconds.isInfinite { break }
 
             if nextDueSeconds > elapsed {
+                // DOCUMENTED EXCEPTION: PTS-paced sleep for clip playback timing
                 let sleepNs = UInt64(max(1_000_000, (nextDueSeconds - elapsed) * 1_000_000_000))
                 try? await Task.sleep(nanoseconds: sleepNs)
                 continue
@@ -316,7 +346,11 @@ private extension ClipPlayerProducer {
 
             if let audioSample = nextAudio,
                audioSample.ptsSeconds - zeroPTS <= elapsed + 0.001 {
-                pushAudioBuffer(audioSample)
+                // Task 51: Slice decoded audio into OutputAudioBufferSizing chunks
+                audioSlicer.feed(audioSample)
+                while let chunk = audioSlicer.nextChunk() {
+                    pushAudioChunk(chunk)
+                }
                 nextAudio = readerContext.nextAudioSample()
             }
 
@@ -327,17 +361,51 @@ private extension ClipPlayerProducer {
             }
         }
 
+        // Preserve audio buffer index continuity across clips
+        audioBufferIndex = audioSlicer.currentAudioBufferIndex
+
         return true
     }
 
+    // Task 52: Still images — repeat pushLocalVideoFrame at output frame rate for configured duration.
+    // Push silence audio alongside each frame.
     func playStillItem(_ item: ClipItem) async -> Bool {
         guard let frameData = renderStillImage(at: item.url) else { return false }
 
-        signalSourceSwitch(for: item)
-        pushVideoFrame(frameData)
-
         let dwellSeconds = item.durationOverride ?? ClipPlayerConstants.defaultStillDuration
-        try? await Task.sleep(nanoseconds: UInt64(dwellSeconds * 1_000_000_000))
+        let frameDurationNs = UInt64(
+            Double(videoFormat.frameRateDenominator) / Double(videoFormat.frameRateNumerator) * 1_000_000_000
+        )
+        let totalFrames = Int(dwellSeconds * Double(videoFormat.frameRateNumerator) / Double(videoFormat.frameRateDenominator))
+
+        var frameStart = ContinuousClock.now
+
+        for _ in 0..<totalFrames {
+            if Task.isCancelled { return true }
+
+            pushVideoFrame(frameData)
+
+            // Push silence audio (two buffers per video frame)
+            for _ in 0..<2 {
+                let sampleCount = OutputAudioBufferSizing.sampleCount(
+                    forFrameIndex: audioBufferIndex,
+                    sampleRate: 48_000,
+                    frameRateNumerator: videoFormat.frameRateNumerator,
+                    frameRateDenominator: videoFormat.frameRateDenominator
+                )
+                pushSilentAudio(sampleCount: sampleCount)
+                audioBufferIndex += 1
+            }
+
+            // PTS-paced frame rate sleep
+            frameStart = frameStart + .nanoseconds(Int(frameDurationNs))
+            let sleepUntil = frameStart
+            let remaining = sleepUntil - .now
+            if remaining > .zero {
+                try? await Task.sleep(for: remaining)
+            }
+        }
+
         return true
     }
 }
@@ -386,37 +454,159 @@ private extension ClipPlayerProducer {
         ) { _ in }
     }
 
-    func pushAudioBuffer(_ sample: AudioSliceSample) {
+    func pushAudioChunk(_ chunk: AudioChunk) {
         guard let coreCommands, let producerID else { return }
 
         let audioFormat = AudioFrameFormat(
             sampleRate: 48_000,
             channels: 2,
-            samplesPerBuffer: sample.sampleCount
+            samplesPerBuffer: chunk.sampleCount
         )
         guard let formatData = try? JSONEncoder().encode(audioFormat) else { return }
         coreCommands.pushLocalAudioBuffer(
             producerID: producerID,
-            bufferData: sample.pcmPlanarFloat32,
+            bufferData: chunk.pcmPlanarFloat32,
             formatData: formatData
         ) { _ in }
     }
 
-    func signalSourceSwitch(for item: ClipItem) {
-        guard let coreCommands else { return }
+    func pushSilentAudio(sampleCount: Int) {
+        guard let coreCommands, let producerID else { return }
+
+        let audioFormat = AudioFrameFormat(
+            sampleRate: 48_000,
+            channels: 2,
+            samplesPerBuffer: sampleCount
+        )
+        let channelStride = sampleCount * MemoryLayout<Float>.size
+        let silentPCM = Data(count: channelStride * audioFormat.channels)
+
+        guard let formatData = try? JSONEncoder().encode(audioFormat) else { return }
+        coreCommands.pushLocalAudioBuffer(
+            producerID: producerID,
+            bufferData: silentPCM,
+            formatData: formatData
+        ) { _ in }
+    }
+
+    // Task 53: Signal clip transition via setProgram with transition type.
+    // Core's dissolve engine handles blend between outgoing and incoming clip frames.
+    func signalClipTransition(for item: ClipItem) {
+        guard let coreCommands, let producerID else { return }
         let config = TransitionConfig(kind: item.transitionKind)
         guard let transitionData = try? JSONEncoder().encode(config) else { return }
-        coreCommands.beginSourceSwitch(
-            fromSourceID: producerID,
-            toSourceID: producerID ?? item.id.uuidString,
+        coreCommands.setProgram(
+            sourceID: producerID,
             transitionData: transitionData
         ) { _, _ in }
     }
 }
 
+// MARK: - Audio Slicer (Task 51)
+
+/// Re-chunks decoded audio into OutputAudioBufferSizing-aligned buffers.
+/// AVAssetReader may return arbitrary chunk sizes; this ensures each push
+/// matches the correct sample count — never 48000 samples at once.
+struct AudioSlicer {
+    private var residualPCM = Data()
+    private var residualSampleCount = 0
+    private(set) var currentAudioBufferIndex: UInt64
+    private let sampleRate: Int
+    private let frameRateNumerator: Int
+    private let frameRateDenominator: Int
+    private let channels = 2
+
+    init(
+        audioBufferIndex: UInt64,
+        sampleRate: Int,
+        frameRateNumerator: Int,
+        frameRateDenominator: Int
+    ) {
+        self.currentAudioBufferIndex = audioBufferIndex
+        self.sampleRate = sampleRate
+        self.frameRateNumerator = frameRateNumerator
+        self.frameRateDenominator = frameRateDenominator
+    }
+
+    /// Feed a decoded audio sample into the slicer.
+    mutating func feed(_ sample: AudioSliceSample) {
+        residualPCM.append(sample.pcmPlanarFloat32)
+        residualSampleCount += sample.sampleCount
+    }
+
+    /// Extract the next correctly-sized chunk, or nil if not enough samples.
+    mutating func nextChunk() -> AudioChunk? {
+        let targetSamples = OutputAudioBufferSizing.sampleCount(
+            forFrameIndex: currentAudioBufferIndex,
+            sampleRate: sampleRate,
+            frameRateNumerator: frameRateNumerator,
+            frameRateDenominator: frameRateDenominator
+        )
+
+        guard residualSampleCount >= targetSamples else { return nil }
+
+        // Planar stereo: L plane (targetSamples * 4 bytes) + R plane (targetSamples * 4 bytes)
+        let bytesPerSample = MemoryLayout<Float>.size
+        let channelStride = targetSamples * bytesPerSample
+        let totalBytes = channelStride * channels
+
+        // Extract from planar residual: need to extract targetSamples from each channel plane
+        let residualChannelStride = residualSampleCount * bytesPerSample
+        var chunk = Data(count: totalBytes)
+
+        chunk.withUnsafeMutableBytes { destBuf in
+            guard let destBase = destBuf.baseAddress else { return }
+            residualPCM.withUnsafeBytes { srcBuf in
+                guard let srcBase = srcBuf.baseAddress else { return }
+                // Copy L plane slice
+                memcpy(destBase, srcBase, channelStride)
+                // Copy R plane slice
+                memcpy(
+                    destBase.advanced(by: channelStride),
+                    srcBase.advanced(by: residualChannelStride),
+                    channelStride
+                )
+            }
+        }
+
+        // Remove consumed samples from residual
+        var newResidual = Data(count: (residualSampleCount - targetSamples) * bytesPerSample * channels)
+        let remainingSamples = residualSampleCount - targetSamples
+        if remainingSamples > 0 {
+            let remainingChannelBytes = remainingSamples * bytesPerSample
+            newResidual.withUnsafeMutableBytes { destBuf in
+                guard let destBase = destBuf.baseAddress else { return }
+                residualPCM.withUnsafeBytes { srcBuf in
+                    guard let srcBase = srcBuf.baseAddress else { return }
+                    // Copy remaining L plane
+                    memcpy(destBase, srcBase.advanced(by: channelStride), remainingChannelBytes)
+                    // Copy remaining R plane
+                    memcpy(
+                        destBase.advanced(by: remainingChannelBytes),
+                        srcBase.advanced(by: residualChannelStride + channelStride),
+                        remainingChannelBytes
+                    )
+                }
+            }
+        }
+        residualPCM = newResidual
+        residualSampleCount = remainingSamples
+        currentAudioBufferIndex += 1
+
+        return AudioChunk(sampleCount: targetSamples, pcmPlanarFloat32: chunk)
+    }
+}
+
+/// A correctly-sized audio chunk ready for XPC push.
+struct AudioChunk {
+    let sampleCount: Int
+    let pcmPlanarFloat32: Data
+}
+
 // MARK: - Image Rendering
 
 private extension ClipPlayerProducer {
+    // Task 52: CGImageSource render to BGRA pixel data.
     func renderStillImage(at url: URL) -> Data? {
         guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
