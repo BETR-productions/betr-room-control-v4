@@ -18,6 +18,10 @@ public final class PresentationLauncherStore: ObservableObject {
     @Published public var currentFilePath: String?
     @Published public var currentMode: SlideshowMode = .closed
 
+    /// Task 100: Current slide number and total slides, polled at 1Hz.
+    @Published public var currentSlide: Int = 0
+    @Published public var totalSlides: Int = 0
+
     /// Callback to open a file via PresentationController.
     public var onOpenFile: ((String) -> Void)?
 
@@ -30,8 +34,43 @@ public final class PresentationLauncherStore: ObservableObject {
     /// Callback to close presentation.
     public var onClosePresentation: (() -> Void)?
 
+    /// Task 99: Slide navigation callbacks.
+    public var onNextSlide: (() -> Void)?
+    public var onPreviousSlide: (() -> Void)?
+
+    /// Task 100: Callback to poll slide state. Returns (currentSlide, totalSlides).
+    public var onPollSlideState: (() async -> (Int, Int))?
+
+    /// Internal polling task for slide number (1Hz max).
+    private var slidePollingTask: Task<Void, Never>?
+
     public init() {
         loadRecent()
+    }
+
+    // MARK: - Slide Polling (Task 100)
+
+    /// Start 1Hz slide state polling. Call when mode transitions to .slideshow.
+    public func startSlidePolling() {
+        stopSlidePolling()
+        slidePollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                if let poll = self?.onPollSlideState {
+                    let (slide, total) = await poll()
+                    self?.currentSlide = slide
+                    self?.totalSlides = total
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1Hz
+            }
+        }
+    }
+
+    /// Stop slide state polling. Call when mode leaves .slideshow.
+    public func stopSlidePolling() {
+        slidePollingTask?.cancel()
+        slidePollingTask = nil
+        currentSlide = 0
+        totalSlides = 0
     }
 
     // MARK: - Open Panel
@@ -173,9 +212,17 @@ public struct PresentationLauncherView: View {
                         .font(BrandTokens.display(size: 12, weight: .medium))
                         .foregroundStyle(BrandTokens.offWhite)
                         .lineLimit(1)
-                    Text(label)
-                        .font(BrandTokens.mono(size: 10))
-                        .foregroundStyle(color)
+                    HStack(spacing: 6) {
+                        Text(label)
+                            .font(BrandTokens.mono(size: 10))
+                            .foregroundStyle(color)
+                        // Task 100: Current slide number display
+                        if mode == .slideshow, store.totalSlides > 0 {
+                            Text("\(store.currentSlide) / \(store.totalSlides)")
+                                .font(BrandTokens.mono(size: 10))
+                                .foregroundStyle(BrandTokens.offWhite)
+                        }
+                    }
                 }
                 Spacer()
             }
@@ -193,6 +240,23 @@ public struct PresentationLauncherView: View {
                     .tint(BrandTokens.gold)
                     .controlSize(.small)
                 } else if mode == .slideshow {
+                    // Task 99: Slide navigation buttons
+                    Button(action: { store.onPreviousSlide?() }) {
+                        Image(systemName: "chevron.left")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(store.currentSlide <= 1)
+
+                    Button(action: { store.onNextSlide?() }) {
+                        Image(systemName: "chevron.right")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(store.currentSlide >= store.totalSlides)
+
+                    Spacer()
+
                     Button(action: { store.onStopSlideshow?() }) {
                         HStack(spacing: 4) {
                             Image(systemName: "stop.fill")

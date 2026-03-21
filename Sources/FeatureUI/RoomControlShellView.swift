@@ -165,10 +165,9 @@ public struct RoomControlShellView: View {
         .padding(.vertical, 6)
     }
 
+    /// Task 98: Auto-warm indicator — pulses gold during .warming, solid green when .warm.
     private func warmBadgeDot(_ badge: WarmBadge) -> some View {
-        Circle()
-            .fill(warmBadgeColor(badge))
-            .frame(width: 6, height: 6)
+        WarmBadgeDotView(badge: badge)
     }
 
     private func warmBadgeColor(_ badge: WarmBadge) -> Color {
@@ -252,5 +251,41 @@ public struct RoomControlShellView: View {
             .font(BrandTokens.display(size: 11, weight: .semibold))
             .foregroundStyle(BrandTokens.warmGrey)
             .tracking(1.2)
+    }
+}
+
+// MARK: - Warm Badge Dot (Task 98)
+
+/// Animated warm badge indicator: pulses gold during .warming, solid green when .warm.
+private struct WarmBadgeDotView: View {
+    let badge: WarmBadge
+    @State private var isPulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(fillColor)
+            .frame(width: 6, height: 6)
+            .opacity(badge == .warming ? (isPulsing ? 1.0 : 0.3) : 1.0)
+            .animation(
+                badge == .warming
+                    ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                    : .default,
+                value: isPulsing
+            )
+            .onAppear {
+                if badge == .warming { isPulsing = true }
+            }
+            .onChange(of: badge) { _, newBadge in
+                isPulsing = newBadge == .warming
+            }
+    }
+
+    private var fillColor: Color {
+        switch badge {
+        case .cold: return BrandTokens.warmGrey
+        case .warming: return BrandTokens.gold
+        case .warm: return BrandTokens.pgnGreen
+        case .failed: return BrandTokens.red
+        }
     }
 }
