@@ -269,17 +269,17 @@ struct UpdateBannerView: View {
         if let info = checker.updateAvailable {
             HStack(spacing: 12) {
                 Image(systemName: "arrow.down.circle.fill")
-                    .foregroundColor(Color(hex: 0xFFAD33))
+                    .foregroundColor(BrandTokens.gold)
                     .font(.system(size: 16))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Update available: \(info.tag)")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color(hex: 0xF4F3F1))
+                        .foregroundColor(BrandTokens.offWhite)
                     if let err = installError {
                         Text(err)
                             .font(.system(size: 11))
-                            .foregroundColor(Color(hex: 0xF9512D))
+                            .foregroundColor(BrandTokens.red)
                     }
                 }
 
@@ -299,26 +299,26 @@ struct UpdateBannerView: View {
                 }
                 .disabled(isInstalling)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(Color(hex: 0x1A1A1A))
+                .foregroundColor(BrandTokens.dark)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
-                .background(Color(hex: 0xFFAD33))
+                .background(BrandTokens.gold)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 Button(action: { checker.dismiss() }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color(hex: 0x918C88))
+                        .foregroundColor(BrandTokens.warmGrey)
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 4)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Color(hex: 0x222222))
+            .background(BrandTokens.toolbarDark)
             .overlay(alignment: .bottom) {
                 Divider()
-                    .background(Color(hex: 0x494645))
+                    .background(BrandTokens.charcoal)
             }
         }
     }
