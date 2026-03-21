@@ -400,24 +400,10 @@ public struct RoomControlShellView: View {
                 Divider().background(BrandTokens.charcoal)
 
                 // Task 135: Presenter view panel (slide notes)
-                presenterViewPanel
+                PresenterViewPanel(store: state.presentationStore)
             }
         }
         .background(BrandTokens.dark)
-    }
-
-    /// Presenter view panel — shows slide notes when available, placeholder otherwise.
-    /// Matches v3 PresenterStatusPanel layout.
-    private var presenterViewPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            panelHeader("PRESENTER VIEW")
-
-            Text("Slide notes and presenter state will appear here once slideshow mode is verified.")
-                .font(BrandTokens.display(size: 12))
-                .foregroundStyle(BrandTokens.warmGrey)
-        }
-        .padding(16)
-        .background(BrandTokens.surfaceDark)
     }
 
     // MARK: - Right Column (v3: Output Grid — moved from center)
@@ -445,10 +431,6 @@ public struct RoomControlShellView: View {
                 }
                 .padding(12)
             }
-
-            // Task 135: Presenter view panel — slide notes display
-            Divider().background(BrandTokens.charcoal)
-            PresenterViewPanel(store: state.presentationStore)
         }
         .background(BrandTokens.dark)
     }
