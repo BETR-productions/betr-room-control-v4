@@ -1,29 +1,29 @@
 // RoomControlApp — SwiftUI entry point for BËTR Room Control v4.
+// Wires CoreAgentClient (XPC) and CapacitySampler into ShellViewState.
 
 import AppKit
 import SwiftUI
 import FeatureUI
+import RoutingDomain
 import RoomControlXPCContracts
 
 // MARK: - App Delegate
 
 final class RoomControlAppDelegate: NSObject, NSApplicationDelegate {
-    private var xpcConnection: NSXPCConnection?
+    let coreAgent = CoreAgentClient()
+    let capacitySampler = CapacitySampler()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        establishXPCConnection()
+        Task {
+            await coreAgent.connect()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        xpcConnection?.invalidate()
-        xpcConnection = nil
-    }
-
-    private func establishXPCConnection() {
-        let connection = NSXPCConnection(machServiceName: RoomControlXPC.serviceName, options: [])
-        // XPC interface will be configured once BETRCoreXPC protocols are complete (Task 3).
-        connection.resume()
-        xpcConnection = connection
+        Task {
+            await capacitySampler.stop()
+            await coreAgent.disconnect()
+        }
     }
 }
 
@@ -39,6 +39,15 @@ struct RoomControlApplication: App {
         WindowGroup {
             RoomControlShellView(state: shellState)
                 .frame(minWidth: 1200, minHeight: 700)
+                .task {
+                    shellState.bind(
+                        coreAgent: appDelegate.coreAgent,
+                        capacitySampler: appDelegate.capacitySampler
+                    )
+                }
+                .onDisappear {
+                    shellState.unbind()
+                }
         }
         .windowStyle(.hiddenTitleBar)
     }

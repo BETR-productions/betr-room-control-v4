@@ -2,6 +2,7 @@
 // 108pt min width, 112pt min height, cardBlack background, 8pt corners.
 
 import SwiftUI
+import RoutingDomain
 
 struct OutputSlotCell: View {
     let card: OutputCardState
@@ -38,11 +39,16 @@ struct OutputSlotCell: View {
                 .lineLimit(2)
                 .frame(height: 30, alignment: .topLeading)
 
-            // Status
-            Text(slot.sourceID == nil ? "No source assigned" : (slot.isAvailable ? "Source available" : "Source unavailable"))
-                .font(BrandTokens.mono(size: 8))
-                .foregroundStyle(BrandTokens.warmGrey)
-                .lineLimit(1)
+            // Status + warm badge
+            HStack(spacing: 4) {
+                if slot.sourceID != nil {
+                    warmBadgeIndicator
+                }
+                Text(statusText)
+                    .font(BrandTokens.mono(size: 8))
+                    .foregroundStyle(BrandTokens.warmGrey)
+                    .lineLimit(1)
+            }
 
             // PVW / PGM buttons — always visible
             HStack(spacing: 6) {
@@ -110,6 +116,16 @@ struct OutputSlotCell: View {
     private var slotCanSwitch: Bool { slot.sourceID != nil && slot.isAvailable }
     private var slotCanPreview: Bool { slotCanSwitch && !isProgram }
 
+    private var statusText: String {
+        if slot.sourceID == nil { return "No source assigned" }
+        switch slot.warmBadge {
+        case .warming: return "Warming..."
+        case .warm: return "Warm"
+        case .failed: return "Failed"
+        case .cold: return slot.isAvailable ? "Cold" : "Source unavailable"
+        }
+    }
+
     private var borderColor: Color {
         if isProgram { return BrandTokens.pgnGreen }
         if isPreview { return BrandTokens.pvwRed }
@@ -125,6 +141,22 @@ struct OutputSlotCell: View {
             .controlSize(.small)
             .font(BrandTokens.mono(size: 10))
             .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var warmBadgeIndicator: some View {
+        Circle()
+            .fill(warmBadgeColor)
+            .frame(width: 6, height: 6)
+    }
+
+    private var warmBadgeColor: Color {
+        switch slot.warmBadge {
+        case .cold: return BrandTokens.warmGrey
+        case .warming: return BrandTokens.gold
+        case .warm: return BrandTokens.pgnGreen
+        case .failed: return BrandTokens.red
+        }
     }
 
     private func miniBadge(_ label: String, tint: Color) -> some View {
