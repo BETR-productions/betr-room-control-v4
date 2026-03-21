@@ -21,7 +21,8 @@ VERSION_OVERRIDE="${VERSION_OVERRIDE:-}"
 BETR_CORE_DIR="${BETR_CORE_DIR:-}"
 ROOM_CONTROL_GIT_SHA=""
 CORE_GIT_SHA=""
-APP_ICON_SOURCE="$PROJECT_DIR/Resources/AppIcon.png"
+APP_ICON_PNG="$PROJECT_DIR/Resources/AppIcon.png"
+APP_ICON_ICNS="$PROJECT_DIR/Resources/AppIcon.icns"
 ROUND_ICON_SCRIPT="$PROJECT_DIR/scripts/round-icon.swift"
 DMG_BG_SOURCE="$PROJECT_DIR/Resources/DMGBackground.png"
 DMG_BG_GEN_SCRIPT="$PROJECT_DIR/scripts/generate-dmg-background.swift"
@@ -492,10 +493,16 @@ chmod +x "$CONTENTS_DIR/MacOS/$APP_NAME"
 write_app_plist "$CONTENTS_DIR/Info.plist" "$VERSION"
 echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
-copy_file_if_present "$APP_ICON_SOURCE" "$CONTENTS_DIR/Resources/AppIcon.png"
+# Prefer pre-built .icns from Resources/ (copied from v3); fall back to PNG generation
+if [[ -f "$APP_ICON_ICNS" ]]; then
+  cp "$APP_ICON_ICNS" "$CONTENTS_DIR/Resources/AppIcon.icns"
+  echo "AppIcon: using pre-built .icns from Resources/"
+else
+  copy_file_if_present "$APP_ICON_PNG" "$CONTENTS_DIR/Resources/AppIcon.png"
+  generate_app_icon_if_present "$CONTENTS_DIR/Resources"
+fi
 
 generate_dmg_background_if_needed "$CONTENTS_DIR/Resources"
-generate_app_icon_if_present "$CONTENTS_DIR/Resources"
 
 # Embed BETRCoreAgent (the NDI/core XPC helper from betr-core-v3)
 AGENT_BUNDLE="$CONTENTS_DIR/Library/LaunchAgents/${CORE_AGENT_BUNDLE_ID}.app"

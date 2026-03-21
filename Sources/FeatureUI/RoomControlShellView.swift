@@ -364,13 +364,13 @@ public struct RoomControlShellView: View {
         state.cards.filter { $0.programSlotID != nil }.count
     }
 
-    // MARK: - Left Column (v3: Sources + Clip Player + Timer)
+    // MARK: - Left Column (v3: Playback + Clip Player + Timer — no source browser)
 
     private var leftColumn: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // Task 113/143: Source browser at top with warm badges
-                SourceBrowserView(state: state)
+                // Playback workspace panel (v3: "RUN OF SHOW" header + mode indicator)
+                playbackWorkspacePanel
 
                 Divider().background(BrandTokens.charcoal)
 
@@ -387,6 +387,18 @@ public struct RoomControlShellView: View {
             }
         }
         .background(BrandTokens.dark)
+    }
+
+    /// v3: PlaybackWorkspacePanel — "RUN OF SHOW" header with mode indicator.
+    private var playbackWorkspacePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            panelHeader("RUN OF SHOW")
+            Text(state.playbackMode == .schedule ? "Schedule playback is selected." : "Manual playback is selected.")
+                .font(BrandTokens.display(size: 12))
+                .foregroundStyle(BrandTokens.offWhite)
+        }
+        .padding(16)
+        .background(BrandTokens.surfaceDark)
     }
 
     // MARK: - Center Column (v3: Presentation + Presenter View)
