@@ -4,6 +4,7 @@
 //   Center: Presentation controls + Presenter view (slide notes)
 //   Right:  Output grid with add button + scrollable output tiles
 
+import AppKit
 import PresentationDomain
 import RoutingDomain
 import SwiftUI
@@ -20,6 +21,7 @@ public struct RoomControlShellView: View {
     @State private var leadingColumnWidth: Double = 340
     @State private var centerColumnWidth: Double = 340
     @StateObject private var wizardState = NDIWizardState()
+    @StateObject private var permissionCenter = PermissionCenter()
 
     public init(state: ShellViewState) {
         self.state = state
@@ -27,6 +29,7 @@ public struct RoomControlShellView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            permissionBanners
             toolbar
             Divider().background(BrandTokens.charcoal)
             GeometryReader { geometry in
@@ -59,6 +62,10 @@ public struct RoomControlShellView: View {
         .onAppear {
             syncLayoutFromState()
             state.ensureDefaultOutput()
+            permissionCenter.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            permissionCenter.refresh()
         }
         .focusable()
         .focusEffectDisabled()
@@ -183,6 +190,66 @@ public struct RoomControlShellView: View {
                 .foregroundStyle(BrandTokens.offWhite)
                 .textSelection(.enabled)
         }
+    }
+
+    // MARK: - Permission Banners (Task 142)
+
+    @ViewBuilder
+    private var permissionBanners: some View {
+        VStack(spacing: 0) {
+            if !permissionCenter.screenRecordingGranted {
+                permissionBannerRow(
+                    icon: "rectangle.dashed.badge.record",
+                    title: "Screen Recording Permission Required",
+                    message: "BETR Room Control needs Screen Recording access to capture presentation windows.",
+                    actionTitle: "Grant Screen Recording",
+                    action: { permissionCenter.requestScreenRecording() }
+                )
+            }
+            if !permissionCenter.accessibilityGranted {
+                permissionBannerRow(
+                    icon: "accessibility",
+                    title: "Accessibility Permission Required",
+                    message: "BETR Room Control needs Accessibility access to control PowerPoint and Keynote.",
+                    actionTitle: "Grant Accessibility",
+                    action: { permissionCenter.requestAccessibility() }
+                )
+            }
+        }
+    }
+
+    private func permissionBannerRow(
+        icon: String,
+        title: String,
+        message: String,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundStyle(BrandTokens.gold)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(BrandTokens.display(size: 13, weight: .semibold))
+                    .foregroundStyle(BrandTokens.white)
+                Text(message)
+                    .font(BrandTokens.display(size: 11))
+                    .foregroundStyle(BrandTokens.warmGrey)
+            }
+            Spacer()
+            Button(actionTitle, action: action)
+                .buttonStyle(.plain)
+                .font(BrandTokens.display(size: 11, weight: .medium))
+                .foregroundStyle(BrandTokens.dark)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(BrandTokens.gold)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(BrandTokens.gold.opacity(0.12))
     }
 
     // MARK: - Toolbar

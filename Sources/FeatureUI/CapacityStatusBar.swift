@@ -1,7 +1,9 @@
 // CapacityStatusBar — bottom status bar showing capacity, NIC throughput, NDI counts.
+// Task 144: Polish to match v3 layout — fallback count, rx/tx, timer status, NIC name.
 // Wired to EngineHealthSnapshot via XPC events + CapacitySampler (1Hz host metrics).
 
 import SwiftUI
+import TimerDomain
 
 struct CapacityStatusBar: View {
     @ObservedObject var state: ShellViewState
@@ -11,8 +13,11 @@ struct CapacityStatusBar: View {
             // Output capacity indicator (Task 129)
             outputCapacityBadge
             badge("\(state.capacity.discoveredSources)", label: "sources")
+            badge("\(state.capacity.fallbackOutputs)", label: "fallback")
+            badge("\(state.capacity.activeRx)", label: "rx")
+            badge("\(state.capacity.activeTx)", label: "tx")
+            timerBadge
             badge(formatCPU(state.capacity.cpuPercent), label: "cpu")
-            badge(formatGPU(state.capacity.estimatedGPUPressure), label: "gpu")
             badge(formatNetwork(), label: "nic")
             badge(formatNICUtil(state.capacity.nicUtilizationPercent), label: "util")
             if let headroom = state.capacity.remainingHeadroom {
@@ -52,6 +57,12 @@ struct CapacityStatusBar: View {
         }
     }
 
+    /// Timer status badge — shows whether timer producer is active.
+    private var timerBadge: some View {
+        let timerActive = state.timerStore?.runState == .running
+        return badge(timerActive ? "on" : "off", label: "timer")
+    }
+
     private func badge(_ value: String, label: String) -> some View {
         HStack(spacing: 4) {
             Text(value)
@@ -64,11 +75,6 @@ struct CapacityStatusBar: View {
     }
 
     private func formatCPU(_ value: Double?) -> String {
-        guard let value else { return "n/a" }
-        return String(format: "%.0f%%", value)
-    }
-
-    private func formatGPU(_ value: Double?) -> String {
         guard let value else { return "n/a" }
         return String(format: "%.0f%%", value)
     }

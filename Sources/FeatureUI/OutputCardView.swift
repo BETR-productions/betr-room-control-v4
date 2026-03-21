@@ -19,9 +19,16 @@ struct OutputCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             cardHeader
-            outputPreview
-            OutputSlotBank(card: card, state: state)
-            cardFooter
+            statusPills
+            // Task 141: Horizontal layout — preview left, slots middle, controls right
+            HStack(alignment: .top, spacing: 10) {
+                outputPreview
+                    .frame(width: 160)
+                VStack(spacing: 6) {
+                    OutputSlotBank(card: card, state: state)
+                    cardFooter
+                }
+            }
         }
         .padding(12)
         .background(BrandTokens.surfaceDark)
@@ -80,6 +87,73 @@ struct OutputCardView: View {
 
             muteButton
         }
+    }
+
+    // MARK: - Status Pills (Task 139)
+
+    @ViewBuilder
+    private var statusPills: some View {
+        let pills = buildStatusPills()
+        if !pills.isEmpty {
+            HStack(spacing: 4) {
+                ForEach(pills, id: \.label) { pill in
+                    Text(pill.label)
+                        .font(BrandTokens.mono(size: 8))
+                        .foregroundStyle(pill.foreground)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(pill.background)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+                Spacer()
+                soloButton
+            }
+        }
+    }
+
+    private struct StatusPill {
+        let label: String
+        let foreground: Color
+        let background: Color
+    }
+
+    private func buildStatusPills() -> [StatusPill] {
+        var pills: [StatusPill] = []
+
+        if card.programSlotID != nil {
+            pills.append(StatusPill(label: "PGM", foreground: BrandTokens.white, background: BrandTokens.pgnGreen))
+        }
+        if card.previewSlotID != nil {
+            pills.append(StatusPill(label: "PVW", foreground: BrandTokens.white, background: BrandTokens.pvwRed))
+        }
+        if card.isAudioMuted {
+            pills.append(StatusPill(label: "MUTED", foreground: BrandTokens.white, background: BrandTokens.red))
+        } else if card.programSlotID != nil {
+            pills.append(StatusPill(label: "AUDIO", foreground: BrandTokens.offWhite, background: BrandTokens.charcoal))
+        }
+        if card.isSoloed {
+            pills.append(StatusPill(label: "SOLO", foreground: BrandTokens.dark, background: .blue))
+        }
+
+        return pills
+    }
+
+    // MARK: - Solo Button (Task 140)
+
+    private var soloButton: some View {
+        Button {
+            state.toggleSolo(card.id)
+        } label: {
+            Text("SOLO")
+                .font(BrandTokens.mono(size: 8))
+                .foregroundStyle(card.isSoloed ? BrandTokens.dark : BrandTokens.warmGrey)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(card.isSoloed ? Color.blue : BrandTokens.charcoal)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+        }
+        .buttonStyle(.plain)
+        .help(card.isSoloed ? "Unsolo output" : "Solo output — route to cue/monitor")
     }
 
     // MARK: - Live Preview (Task 125)

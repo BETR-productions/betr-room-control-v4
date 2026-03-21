@@ -55,6 +55,7 @@ public struct OutputCardState: Identifiable, Sendable {
     public var previewSlotID: String?
     public var listenerCount: Int
     public var isAudioMuted: Bool
+    public var isSoloed: Bool
     public var senderName: String
 
     public init(
@@ -65,6 +66,7 @@ public struct OutputCardState: Identifiable, Sendable {
         previewSlotID: String? = nil,
         listenerCount: Int = 0,
         isAudioMuted: Bool = false,
+        isSoloed: Bool = false,
         senderName: String = ""
     ) {
         self.id = id
@@ -74,6 +76,7 @@ public struct OutputCardState: Identifiable, Sendable {
         self.previewSlotID = previewSlotID
         self.listenerCount = listenerCount
         self.isAudioMuted = isAudioMuted
+        self.isSoloed = isSoloed
         self.senderName = senderName
     }
 }
@@ -559,6 +562,23 @@ public final class ShellViewState: ObservableObject {
         Task {
             guard let coreAgent else { return }
             _ = await coreAgent.setOutputMuted(outputID: cardID, muted: muted)
+        }
+    }
+
+    /// Toggle solo on an output card (Task 140).
+    /// Solo routes this output to cue/monitor. Only one output can be soloed at a time.
+    public func toggleSolo(_ cardID: String) {
+        guard let idx = cards.firstIndex(where: { $0.id == cardID }) else { return }
+        let wasSoloed = cards[idx].isSoloed
+
+        // Clear all solos first (exclusive solo)
+        for i in cards.indices {
+            cards[i].isSoloed = false
+        }
+
+        // Toggle the target
+        if !wasSoloed {
+            cards[idx].isSoloed = true
         }
     }
 
