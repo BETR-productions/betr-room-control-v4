@@ -1,5 +1,6 @@
 // VideoReaderContext — AVAssetReader wrapper for hardware-decoded video/audio.
-// Supports H.264, H.265 (HEVC), ProRes via AVFoundation. No FFmpeg.
+// Supports H.264, H.265 (HEVC), ProRes via AVFoundation hardware decode. No FFmpeg.
+// Task 50: IOSurface-backed CVPixelBuffer output for zero-copy where possible.
 
 import AVFoundation
 import Foundation
@@ -11,10 +12,10 @@ struct VideoFrameSample {
     let frameData: Data
 }
 
-struct AudioSliceSample {
-    let ptsSeconds: Double
-    let sampleCount: Int
-    let pcmPlanarFloat32: Data
+public struct AudioSliceSample {
+    public let ptsSeconds: Double
+    public let sampleCount: Int
+    public let pcmPlanarFloat32: Data
 }
 
 // MARK: - Video Reader Context
@@ -42,6 +43,7 @@ final class VideoReaderContext {
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: width,
             kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
         ]
         let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoSettings)
         videoOutput.alwaysCopiesSampleData = false

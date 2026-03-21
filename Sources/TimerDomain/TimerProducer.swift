@@ -1,6 +1,7 @@
 // TimerProducer — local producer for countdown/end-time timer overlay.
 // Registers with BETRCoreAgent, renders via CoreText, pushes frames via IOSurface XPC.
-// Uses OutputAudioBufferSizing (AudioFrameFormat.samplesPerBuffer) for correct frame-aligned silent audio.
+// Pushes video at output frame rate (29.97fps). Renders new frame only when time text changes.
+// Uses OutputAudioBufferSizing for correct frame-aligned silent audio — never 480 or 48000 samples.
 
 import CoreGraphics
 import CoreVideo
@@ -28,7 +29,13 @@ public actor TimerProducer {
     // MARK: - Frame delivery
 
     private var surface: IOSurface?
-    private var tickTask: Task<Void, Never>?
+    private var frameRateTask: Task<Void, Never>?
+    private var audioBufferIndex: UInt64 = 0
+
+    // MARK: - Frame caching (Task 56: reuse when time string unchanged)
+
+    private var cachedFrameData: Data?
+    private var cachedTimeText: String?
 
     // MARK: - Callbacks
 
@@ -82,6 +89,7 @@ public actor TimerProducer {
         self.producerID = producerID
         ensureSurface()
         renderAndPushCurrentFrame()
+        startFrameRateTask()
         notifyStateChange()
     }
 
@@ -92,6 +100,7 @@ public actor TimerProducer {
         if runState == .stopped {
             remainingSeconds = max(1, seconds)
         }
+        invalidateFrameCache()
         renderAndPushCurrentFrame()
         notifyStateChange()
     }
@@ -101,6 +110,7 @@ public actor TimerProducer {
         if runState == .stopped {
             remainingSeconds = max(0, Int(ceil(target.timeIntervalSince(Date()))))
         }
+        invalidateFrameCache()
         renderAndPushCurrentFrame()
         notifyStateChange()
     }
@@ -112,17 +122,21 @@ public actor TimerProducer {
         runningBaseRemainingSeconds = initial
         runningStartedAt = now
         runState = .running
+        audioBufferIndex = 0
+        invalidateFrameCache()
         renderAndPushCurrentFrame()
-        startTickTask()
+        startFrameRateTask()
         notifyStateChange()
     }
 
     public func stop() {
-        tickTask?.cancel()
-        tickTask = nil
+        frameRateTask?.cancel()
+        frameRateTask = nil
         runState = .stopped
         runningStartedAt = nil
         remainingSeconds = initialRemainingSeconds(now: Date())
+        audioBufferIndex = 0
+        invalidateFrameCache()
         renderAndPushCurrentFrame()
         notifyStateChange()
     }
@@ -133,8 +147,7 @@ public actor TimerProducer {
         remainingSeconds = computeRemainingSeconds(at: now)
         runningStartedAt = nil
         runState = .paused
-        tickTask?.cancel()
-        tickTask = nil
+        invalidateFrameCache()
         renderAndPushCurrentFrame()
         notifyStateChange()
     }
@@ -145,8 +158,10 @@ public actor TimerProducer {
         runningBaseRemainingSeconds = remainingSeconds
         runningStartedAt = now
         runState = .running
+        audioBufferIndex = 0
+        invalidateFrameCache()
         renderAndPushCurrentFrame()
-        startTickTask()
+        startFrameRateTask()
         notifyStateChange()
     }
 
@@ -171,44 +186,64 @@ public actor TimerProducer {
     // MARK: - Shutdown
 
     public func shutdown() {
-        tickTask?.cancel()
-        tickTask = nil
+        frameRateTask?.cancel()
+        frameRateTask = nil
         runState = .stopped
         runningStartedAt = nil
         unregister()
         surface = nil
+        cachedFrameData = nil
+        cachedTimeText = nil
     }
 }
 
-// MARK: - Tick Loop
+// MARK: - Frame-Rate Push Loop (Task 57)
 
 private extension TimerProducer {
-    func startTickTask() {
-        tickTask?.cancel()
-        tickTask = Task { await runTickLoop() }
+    func startFrameRateTask() {
+        frameRateTask?.cancel()
+        guard runState == .running else { return }
+        frameRateTask = Task { await runFrameRateLoop() }
     }
 
-    func runTickLoop() async {
+    /// Pushes video + audio at output frame rate (29.97fps).
+    /// Renders a new frame only when the time text changes (once per second).
+    /// Holds the cached frame otherwise.
+    func runFrameRateLoop() async {
+        let frameDurationNs = UInt64(
+            Double(videoFormat.frameRateDenominator) / Double(videoFormat.frameRateNumerator) * 1_000_000_000
+        )
+        var frameStart = ContinuousClock.now
+
         while !Task.isCancelled, runState == .running {
             let now = Date()
             let nextRemaining = computeRemainingSeconds(at: now)
+
             if nextRemaining != remainingSeconds {
                 remainingSeconds = nextRemaining
-                renderAndPushCurrentFrame()
+                invalidateFrameCache()
                 notifyStateChange()
+
                 if nextRemaining == 0 {
+                    renderAndPushCurrentFrame()
                     runState = .stopped
                     runningStartedAt = nil
-                    tickTask = nil
+                    frameRateTask = nil
                     notifyStateChange()
                     return
                 }
             }
 
-            // Sleep until next second boundary
-            let fractional = now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1)
-            let nextSleep = max(0.05, 1.0 - fractional)
-            try? await Task.sleep(nanoseconds: UInt64(nextSleep * 1_000_000_000))
+            renderAndPushCurrentFrame()
+            pushSilentAudio()
+
+            // PTS-paced sleep to maintain frame rate
+            frameStart = frameStart + .nanoseconds(Int(frameDurationNs))
+            let sleepUntil = frameStart
+            let remaining = sleepUntil - .now
+            if remaining > .zero {
+                try? await Task.sleep(for: remaining)
+            }
         }
     }
 
@@ -253,7 +288,13 @@ private extension TimerProducer {
         surface = IOSurface(properties: properties)
     }
 
+    func invalidateFrameCache() {
+        cachedFrameData = nil
+        cachedTimeText = nil
+    }
+
     func renderAndPushCurrentFrame() {
+        let timeText = formattedTime(remainingSeconds)
         let title: String
         let subtitle: String
         switch runState {
@@ -265,25 +306,33 @@ private extension TimerProducer {
             }
         case .paused:
             title = "Timer Paused"
-            subtitle = "Paused locally in BËTR Room Control"
+            subtitle = "Paused locally in BETR Room Control"
         case .stopped:
             title = "Timer Ready"
             subtitle = "Idle timer sender is on-air"
         }
 
-        guard let pixelData = TimerFrameRenderer.render(
-            width: videoFormat.width,
-            height: videoFormat.height,
-            title: title,
-            subtitle: subtitle,
-            timeText: formattedTime(remainingSeconds),
-            isRunning: runState == .running
-        ) else {
-            return
+        // Task 56: Reuse frame when time string unchanged (same second)
+        let pixelData: Data
+        if let cached = cachedFrameData, cachedTimeText == timeText {
+            pixelData = cached
+        } else {
+            guard let rendered = TimerFrameRenderer.render(
+                width: videoFormat.width,
+                height: videoFormat.height,
+                title: title,
+                subtitle: subtitle,
+                timeText: timeText,
+                isRunning: runState == .running
+            ) else {
+                return
+            }
+            pixelData = rendered
+            cachedFrameData = rendered
+            cachedTimeText = timeText
         }
 
         pushVideoFrame(pixelData)
-        pushSilentAudio()
     }
 
     func pushVideoFrame(_ frameData: Data) {
@@ -306,25 +355,37 @@ private extension TimerProducer {
         ) { _ in }
     }
 
-    /// Push silent audio using correct frame-aligned buffer sizing.
-    /// Uses AudioFrameFormat.samplesPerBuffer (default 480) instead of hardcoded 48000.
+    /// Push silent audio using OutputAudioBufferSizing for correct frame-aligned sizes.
+    /// Task 58: Never 480 or 48000 sample blocks.
     func pushSilentAudio() {
         guard let coreCommands, let producerID else { return }
 
-        let audioFormat = AudioFrameFormat(
-            sampleRate: 48_000,
-            channels: 2,
-            samplesPerBuffer: 480
-        )
-        let channelStride = audioFormat.samplesPerBuffer * MemoryLayout<Float>.size
-        let silentPCM = Data(count: channelStride * audioFormat.channels)
+        // Two audio buffers per video frame
+        for _ in 0..<2 {
+            let sampleCount = OutputAudioBufferSizing.sampleCount(
+                forFrameIndex: audioBufferIndex,
+                sampleRate: 48_000,
+                frameRateNumerator: videoFormat.frameRateNumerator,
+                frameRateDenominator: videoFormat.frameRateDenominator
+            )
 
-        guard let formatData = try? JSONEncoder().encode(audioFormat) else { return }
-        coreCommands.pushLocalAudioBuffer(
-            producerID: producerID,
-            bufferData: silentPCM,
-            formatData: formatData
-        ) { _ in }
+            let audioFormat = AudioFrameFormat(
+                sampleRate: 48_000,
+                channels: 2,
+                samplesPerBuffer: sampleCount
+            )
+            let channelStride = sampleCount * MemoryLayout<Float>.size
+            let silentPCM = Data(count: channelStride * audioFormat.channels)
+
+            guard let formatData = try? JSONEncoder().encode(audioFormat) else { continue }
+            coreCommands.pushLocalAudioBuffer(
+                producerID: producerID,
+                bufferData: silentPCM,
+                formatData: formatData
+            ) { _ in }
+
+            audioBufferIndex += 1
+        }
     }
 }
 
