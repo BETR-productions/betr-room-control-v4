@@ -209,6 +209,10 @@ public struct RoomControlShellView: View {
                 }
                 .padding(12)
             }
+
+            // Task 135: Presenter view panel — slide notes display
+            Divider().background(BrandTokens.charcoal)
+            PresenterViewPanel(store: state.presentationStore)
         }
         .background(BrandTokens.dark)
     }

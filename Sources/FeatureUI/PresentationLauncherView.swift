@@ -22,6 +22,9 @@ public final class PresentationLauncherStore: ObservableObject {
     @Published public var currentSlide: Int = 0
     @Published public var totalSlides: Int = 0
 
+    /// Task 135: Current slide notes text, fetched alongside slide polling.
+    @Published public var currentSlideNotes: String?
+
     /// Callback to open a file via PresentationController.
     public var onOpenFile: ((String) -> Void)?
 
@@ -41,6 +44,9 @@ public final class PresentationLauncherStore: ObservableObject {
     /// Task 100: Callback to poll slide state. Returns (currentSlide, totalSlides).
     public var onPollSlideState: (() async -> (Int, Int))?
 
+    /// Task 135: Callback to fetch slide notes for a given slide number.
+    public var onFetchSlideNotes: ((Int) async -> String?)?
+
     /// Internal polling task for slide number (1Hz max).
     private var slidePollingTask: Task<Void, Never>?
 
@@ -57,8 +63,15 @@ public final class PresentationLauncherStore: ObservableObject {
             while !Task.isCancelled {
                 if let poll = self?.onPollSlideState {
                     let (slide, total) = await poll()
+                    let previousSlide = self?.currentSlide ?? 0
                     self?.currentSlide = slide
                     self?.totalSlides = total
+
+                    // Task 135: Fetch notes when slide changes
+                    if slide != previousSlide, slide > 0,
+                       let fetchNotes = self?.onFetchSlideNotes {
+                        self?.currentSlideNotes = await fetchNotes(slide)
+                    }
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000) // DOCUMENTED EXCEPTION: slide state polling, 1Hz, not media path
             }
@@ -71,6 +84,7 @@ public final class PresentationLauncherStore: ObservableObject {
         slidePollingTask = nil
         currentSlide = 0
         totalSlides = 0
+        currentSlideNotes = nil
     }
 
     // MARK: - Open Panel
