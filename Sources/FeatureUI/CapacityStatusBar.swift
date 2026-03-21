@@ -17,12 +17,10 @@ struct CapacityStatusBar: View {
             badge("\(state.capacity.activeRx)", label: "rx")
             badge("\(state.capacity.activeTx)", label: "tx")
             timerBadge
-            badge(formatCPU(state.capacity.cpuPercent), label: "cpu")
-            badge(formatNetwork(), label: "nic")
-            badge(formatNICUtil(state.capacity.nicUtilizationPercent), label: "util")
-            if let headroom = state.capacity.remainingHeadroom {
-                badge("\(headroom)", label: "headroom")
-            }
+            badge(formatCPU(state.capacity.cpuPercent), label: "cpu raw",
+                  helpText: "Activity Monitor-style aggregate CPU across all cores.")
+            badge(formatNetwork(), label: "network",
+                  helpText: "Inbound and outbound throughput on the selected NIC.")
             Spacer()
             Text(state.capacity.sdkVersion ?? "NDI runtime unavailable")
                 .font(BrandTokens.mono(size: 10))
@@ -63,14 +61,20 @@ struct CapacityStatusBar: View {
         return badge(timerActive ? "on" : "off", label: "timer")
     }
 
-    private func badge(_ value: String, label: String) -> some View {
-        HStack(spacing: 4) {
+    @ViewBuilder
+    private func badge(_ value: String, label: String, helpText: String? = nil) -> some View {
+        let content = HStack(spacing: 4) {
             Text(value)
                 .font(BrandTokens.mono(size: 12))
                 .foregroundStyle(BrandTokens.offWhite)
             Text(label.uppercased())
                 .font(BrandTokens.mono(size: 9))
                 .foregroundStyle(BrandTokens.warmGrey)
+        }
+        if let helpText, !helpText.isEmpty {
+            content.help(helpText)
+        } else {
+            content
         }
     }
 
@@ -82,11 +86,9 @@ struct CapacityStatusBar: View {
     private func formatNetwork() -> String {
         guard let inbound = state.capacity.nicInboundMbps,
               let outbound = state.capacity.nicOutboundMbps else { return "n/a" }
-        return String(format: "%.0f/%.0f", inbound, outbound)
-    }
-
-    private func formatNICUtil(_ value: Double?) -> String {
-        guard let value else { return "n/a" }
-        return String(format: "%.0f%%", value)
+        if let utilization = state.capacity.nicUtilizationPercent {
+            return String(format: "%.0f in • %.0f out • %.0f%%", inbound, outbound, utilization)
+        }
+        return String(format: "%.0f in • %.0f out", inbound, outbound)
     }
 }
