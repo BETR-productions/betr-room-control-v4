@@ -30,7 +30,9 @@ struct OutputCardView: View {
                 .frame(width: 108)
         }
         .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 252, alignment: .topLeading)
         .background(BrandTokens.surfaceDark)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(
@@ -38,17 +40,20 @@ struct OutputCardView: View {
                     lineWidth: isFocused ? 1.5 : 1
                 )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(RoundedRectangle(cornerRadius: 6))
         .onTapGesture { state.focusedCardID = card.id }
         .contextMenu { cardContextMenu }
-        .alert("Delete Output?", isPresented: $showDeleteConfirmation) {
-            Button("Delete", role: .destructive) {
+        .confirmationDialog(
+            "Remove \(card.name)?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Output", role: .destructive) {
                 state.removeOutput(card.id)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will remove \"\(card.name)\" and all slot assignments.")
+            Text("This tears down the sender, removes its slots, and can leave the workspace with zero outputs.")
         }
     }
 
@@ -73,13 +78,10 @@ struct OutputCardView: View {
                         .onTapGesture(count: 2) { startEditing() }
                 }
 
-                if card.listenerCount > 0 {
-                    listenerBadge
-                }
+                Spacer(minLength: 8)
+                listenerBadge
 
                 statusPills
-
-                Spacer()
             }
 
             // Live preview: 312×176pt
@@ -98,43 +100,40 @@ struct OutputCardView: View {
 
     @ViewBuilder
     private var statusPills: some View {
-        let pills = buildStatusPills()
-        if !pills.isEmpty {
+        let labels = buildStatusLabels()
+        if !labels.isEmpty {
             HStack(spacing: 4) {
-                ForEach(pills, id: \.label) { pill in
-                    Text(pill.label)
-                        .font(BrandTokens.mono(size: 8))
-                        .foregroundStyle(pill.foreground)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(pill.background)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                ForEach(labels, id: \.self) { label in
+                    statusPill(label)
                 }
             }
         }
     }
 
-    private struct StatusPill {
-        let label: String
-        let foreground: Color
-        let background: Color
+    private func buildStatusLabels() -> [String] {
+        var labels: [String] = []
+        if card.previewSlotID != nil { labels.append("PVW") }
+        if card.programSlotID != nil { labels.append("PGM") }
+        if card.isAudioMuted { labels.append("MUTED") }
+        if card.isSoloed { labels.append("SOLO") }
+        return labels
     }
 
-    private func buildStatusPills() -> [StatusPill] {
-        var pills: [StatusPill] = []
-        if card.programSlotID != nil {
-            pills.append(StatusPill(label: "PGM", foreground: BrandTokens.white, background: BrandTokens.pgnGreen))
+    private func statusPill(_ label: String) -> some View {
+        let tint: Color = switch label {
+        case "PVW": Color(hex: 0xC73B33)
+        case "PGM": Color(hex: 0x1F9D55)
+        case "MUTED": Color(hex: 0xC97A16)
+        case "SOLO": Color(hex: 0x2962D9)
+        default: BrandTokens.charcoal
         }
-        if card.previewSlotID != nil {
-            pills.append(StatusPill(label: "PVW", foreground: BrandTokens.white, background: BrandTokens.pvwRed))
-        }
-        if card.isAudioMuted {
-            pills.append(StatusPill(label: "MUTED", foreground: BrandTokens.white, background: BrandTokens.red))
-        }
-        if card.isSoloed {
-            pills.append(StatusPill(label: "SOLO", foreground: BrandTokens.dark, background: .blue))
-        }
-        return pills
+        return Text(label)
+            .font(BrandTokens.mono(size: 10))
+            .foregroundStyle(BrandTokens.offWhite)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(tint)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     // MARK: - Live Preview (312×176)
@@ -171,10 +170,10 @@ struct OutputCardView: View {
                 .font(BrandTokens.mono(size: 8))
                 .foregroundStyle(BrandTokens.offWhite)
                 .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(BrandTokens.red.opacity(0.85))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .padding(6)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.72))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .padding(8)
         }
     }
 
@@ -191,28 +190,30 @@ struct OutputCardView: View {
     // MARK: - Source Info Row
 
     private var sourceInfoRow: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if let pgmSlotID = card.programSlotID,
-               let pgmSlot = card.slots.first(where: { $0.id == pgmSlotID }),
-               let name = pgmSlot.displayName {
-                Text(name)
-                    .font(BrandTokens.display(size: 12, weight: .semibold))
-                    .foregroundStyle(BrandTokens.offWhite)
-                    .lineLimit(2)
-                    .frame(minHeight: 32, alignment: .topLeading)
-            } else {
-                Text("No source")
-                    .font(BrandTokens.display(size: 12, weight: .semibold))
-                    .foregroundStyle(BrandTokens.warmGrey)
-                    .frame(minHeight: 32, alignment: .topLeading)
-            }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(primarySourceLabel)
+                .font(BrandTokens.display(size: 12, weight: .semibold))
+                .foregroundStyle(BrandTokens.offWhite)
+                .lineLimit(2)
+                .frame(height: 32, alignment: .topLeading)
 
             if !card.senderName.isEmpty {
                 Text(card.senderName)
                     .font(BrandTokens.mono(size: 9))
                     .foregroundStyle(BrandTokens.warmGrey)
+                    .lineLimit(1)
             }
         }
+        .frame(width: 312, alignment: .leading)
+    }
+
+    private var primarySourceLabel: String {
+        if let pgmSlotID = card.programSlotID,
+           let pgmSlot = card.slots.first(where: { $0.id == pgmSlotID }),
+           let name = pgmSlot.displayName {
+            return name
+        }
+        return "Fallback Slate"
     }
 
     // MARK: - Right Control Section (108pt)
@@ -256,23 +257,23 @@ struct OutputCardView: View {
 
             // Actions menu
             Menu {
-                Button("Rename Output...") { startEditing() }
+                Button("Clear To Fallback") {
+                    // Clear all slots to return output to fallback state
+                    for slot in card.slots where slot.sourceID != nil {
+                        state.clearSlot(card.id, slotID: slot.id)
+                    }
+                }
                 Divider()
-                Button("Delete Output", role: .destructive) {
+                Button("Remove Output…", role: .destructive) {
                     showDeleteConfirmation = true
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 11))
-                    Text("Actions")
-                        .font(BrandTokens.display(size: 11, weight: .medium))
-                }
-                .foregroundStyle(BrandTokens.warmGrey)
-                .frame(maxWidth: .infinity)
+                Label("Actions", systemImage: "ellipsis.circle")
+                    .font(BrandTokens.display(size: 11, weight: .medium))
+                    .frame(maxWidth: .infinity)
             }
-            .menuStyle(.borderlessButton)
-            .frame(maxWidth: .infinity)
+            .menuStyle(.button)
+            .controlSize(.small)
 
             Spacer()
         }
@@ -281,16 +282,16 @@ struct OutputCardView: View {
     // MARK: - Subviews
 
     private var listenerBadge: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "person.fill")
-                .font(.system(size: 8))
+        HStack(spacing: 4) {
+            Image(systemName: card.listenerCount > 0 ? "ear.fill" : "ear")
+                .font(.system(size: 10, weight: .semibold))
             Text("\(card.listenerCount)")
-                .font(BrandTokens.mono(size: 9))
+                .font(BrandTokens.mono(size: 10))
         }
-        .foregroundStyle(BrandTokens.warmGrey)
+        .foregroundStyle(card.listenerCount > 0 ? BrandTokens.offWhite : BrandTokens.warmGrey)
         .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(BrandTokens.charcoal)
+        .padding(.vertical, 3)
+        .background(Color.white.opacity(card.listenerCount > 0 ? 0.08 : 0.04))
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
