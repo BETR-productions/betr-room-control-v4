@@ -6,9 +6,9 @@ BUILD_ROOT="$PROJECT_DIR/build"
 APP_DISPLAY_NAME="BËTR Room Control"
 APP_NAME="BETR Room Control"
 APP_EXECUTABLE="RoomControlApp"
-APP_BUNDLE_ID="com.betr.room-control-v4"
+APP_BUNDLE_ID="com.betr.room-control"
 TEAM_ID="Y8WQ4W4L59"
-DEFAULT_VERSION="0.3.21"
+DEFAULT_VERSION="0.9.8.71"
 CONFIGURATION="release"
 SIGN_BUNDLE=0
 CREATE_ZIP=1
@@ -18,6 +18,9 @@ STAPLE_BUNDLE=0
 SIGN_IDENTITY="${SIGN_IDENTITY:-${SIGN_ID:-}}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 VERSION_OVERRIDE="${VERSION_OVERRIDE:-}"
+RAW_VERSION_ARGUMENT=""
+RELEASE_TRACK_OVERRIDE="${RELEASE_TRACK:-}"
+UPDATE_SEQUENCE_OVERRIDE="${UPDATE_SEQUENCE:-}"
 BETR_CORE_DIR="${BETR_CORE_DIR:-}"
 ROOM_CONTROL_GIT_SHA=""
 CORE_GIT_SHA=""
@@ -28,6 +31,8 @@ DMG_BG_SOURCE="$PROJECT_DIR/Resources/DMGBackground.png"
 DMG_BG_GEN_SCRIPT="$PROJECT_DIR/scripts/generate-dmg-background.swift"
 OBFUSCATED_PAT=""
 OBFUSCATION_KEY=""
+RELEASE_TRACK_VALUE="legacy"
+UPDATE_SEQUENCE_VALUE="0"
 
 # XPC services built from betr-room-control-v4 Package.swift.
 # In v4, domain modules (ClipPlayerDomain, TimerDomain, PresentationDomain) are
@@ -47,6 +52,9 @@ Usage: $(basename "$0") [options]
 Options:
   --configuration <debug|release>   Swift build configuration. Default: release
   --version <version>               Bundle/app version. Default: $DEFAULT_VERSION
+  --release-track <legacy|bridge|date>
+                                    Embed updater track metadata. Default: inferred from version
+  --update-sequence <sequence>      Override the hidden monotonic updater sequence
   --sign                            Code sign the app and XPC bundles using SIGN_IDENTITY or SIGN_ID
   --sign-identity <identity>        Override the signing identity to use with --sign
   --notarize                        Submit the signed app/DMG for notarization using NOTARY_PROFILE or --notary-profile
@@ -62,6 +70,57 @@ Environment:
   SIGN_ID         Alias for SIGN_IDENTITY
   NOTARY_PROFILE  Notarytool Keychain profile (alternative to --notary-profile)
 EOF
+}
+
+canonicalize_version() {
+  local raw="$1"
+  if [[ "$raw" == .* ]]; then
+    echo "0${raw}"
+  else
+    echo "$raw"
+  fi
+}
+
+infer_release_track() {
+  local version_argument="$1"
+  local canonical_version="$2"
+  local explicit_track="$3"
+  if [[ -n "$explicit_track" ]]; then
+    echo "$explicit_track"
+    return 0
+  fi
+  if [[ "$canonical_version" =~ ^0\.9\.8\.[0-9]+$ ]]; then
+    echo "bridge"
+    return 0
+  fi
+  if [[ "$version_argument" == .* ]]; then
+    echo "date"
+    return 0
+  fi
+  echo "legacy"
+}
+
+default_update_sequence() {
+  local canonical_version="$1"
+  local release_track="$2"
+  local year
+  local month
+  local day
+  local build
+  year="$(date +%Y)"
+
+  case "$release_track" in
+    bridge)
+      printf "%04d%02d%02d%02d\n" "$year" "$(date +%-m)" "$(date +%-d)" 2
+      ;;
+    date)
+      IFS='.' read -r _ month day build <<< "$canonical_version"
+      printf "%04d%02d%02d%02d\n" "$year" "${month:-0}" "${day:-0}" "${build:-1}"
+      ;;
+    *)
+      echo "0"
+      ;;
+  esac
 }
 
 contains_item() {
@@ -134,9 +193,13 @@ write_app_plist() {
     <key>NSScreenCaptureUsageDescription</key>
     <string>BËTR Room Control captures routed presentation surfaces for operator monitoring and output.</string>
     <key>BETRReleaseRepository</key>
-    <string>BETR-productions/betr-room-control-v4</string>
+    <string>BETR-productions/betr-room-control-v2</string>
     <key>BETRTeamIdentifier</key>
     <string>${TEAM_ID}</string>
+    <key>BETRReleaseTrack</key>
+    <string>${RELEASE_TRACK_VALUE}</string>
+    <key>BETRUpdateSequence</key>
+    <string>${UPDATE_SEQUENCE_VALUE}</string>
     <key>BETRRoomControlGitSHA</key>
     <string>${ROOM_CONTROL_GIT_SHA}</string>
     <key>BETRCoreGitSHA</key>
@@ -179,6 +242,8 @@ VERSION="${VERSION}"
 ROOM_CONTROL_GIT_SHA="${ROOM_CONTROL_GIT_SHA}"
 CORE_GIT_SHA="${CORE_GIT_SHA}"
 BETR_CORE_DIR="${BETR_CORE_DIR}"
+RELEASE_TRACK="${RELEASE_TRACK_VALUE}"
+UPDATE_SEQUENCE="${UPDATE_SEQUENCE_VALUE}"
 EOF
 }
 
@@ -348,7 +413,16 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --version)
+      RAW_VERSION_ARGUMENT="$2"
       VERSION_OVERRIDE="$2"
+      shift 2
+      ;;
+    --release-track)
+      RELEASE_TRACK_OVERRIDE="$2"
+      shift 2
+      ;;
+    --update-sequence)
+      UPDATE_SEQUENCE_OVERRIDE="$2"
       shift 2
       ;;
     --sign)
@@ -404,7 +478,9 @@ case "$CONFIGURATION" in
     ;;
 esac
 
-VERSION="${VERSION_OVERRIDE:-$DEFAULT_VERSION}"
+VERSION="$(canonicalize_version "${VERSION_OVERRIDE:-$DEFAULT_VERSION}")"
+RELEASE_TRACK_VALUE="$(infer_release_track "$RAW_VERSION_ARGUMENT" "$VERSION" "$RELEASE_TRACK_OVERRIDE")"
+UPDATE_SEQUENCE_VALUE="${UPDATE_SEQUENCE_OVERRIDE:-$(default_update_sequence "$VERSION" "$RELEASE_TRACK_VALUE")}"
 ARTIFACT_DIR="$BUILD_ROOT/artifacts/$CONFIGURATION"
 APP_BUNDLE="$ARTIFACT_DIR/${APP_NAME}.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
@@ -444,6 +520,8 @@ fi
 echo "== Building ${APP_DISPLAY_NAME} =="
 echo "Configuration: $CONFIGURATION"
 echo "Version: $VERSION"
+echo "Release track: $RELEASE_TRACK_VALUE"
+echo "Update sequence: $UPDATE_SEQUENCE_VALUE"
 echo "Core: $BETR_CORE_DIR"
 echo "Room Control SHA: $ROOM_CONTROL_GIT_SHA"
 echo "Core SHA: $CORE_GIT_SHA"

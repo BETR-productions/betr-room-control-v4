@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import FeatureUI
+import os.log
 
 /// Checks for updates from the BËTR Room Control v4 GitHub releases feed.
 /// Non-blocking. Displays a dismissable banner in the UI when a newer version is available.
@@ -12,9 +13,12 @@ final class UpdateChecker: ObservableObject {
 
     @Published var updateAvailable: UpdateInfo? = nil
 
-    private let releaseRepo = "BETR-productions/betr-room-control-v4"
+    private let releaseRepo = RoomControlPublicRelease.releaseRepository
     private let apiBase = "https://api.github.com"
     private var checkTask: Task<Void, Never>?
+    private let logger = Logger(subsystem: RoomControlPublicRelease.bundleIdentifier, category: "Update")
+    private let currentReleaseTrack: RoomControlReleaseTrack
+    private let currentUpdateSequence: Int?
 
     struct UpdateInfo: Identifiable {
         let id = UUID()
@@ -22,9 +26,13 @@ final class UpdateChecker: ObservableObject {
         let downloadURL: URL
         let sha256: String?
         let releaseNotes: String
+        let updateSequence: Int?
     }
 
-    private init() {}
+    private init() {
+        currentReleaseTrack = RoomControlReleaseVersioning.parseTrack(fromInfoDictionary: Bundle.main.infoDictionary)
+        currentUpdateSequence = RoomControlReleaseVersioning.parseUpdateSequence(fromInfoDictionary: Bundle.main.infoDictionary)
+    }
 
     /// Begin a periodic update check. Call once on app launch.
     func startChecking() {
@@ -53,16 +61,24 @@ final class UpdateChecker: ObservableObject {
 
         do {
             let latest = try await fetchLatestRelease()
-            let latestVersion = latest.tag.hasPrefix("v") ? String(latest.tag.dropFirst()) : latest.tag
-            guard isNewer(remote: latestVersion, than: currentVersion) else { return }
+            let latestVersion = RoomControlReleaseVersioning.canonicalVersion(
+                latest.tag.hasPrefix("v") ? String(latest.tag.dropFirst()) : latest.tag
+            )
+            guard RoomControlReleaseVersioning.isCandidateNewer(
+                candidateVersion: latestVersion,
+                candidateUpdateSequence: latest.updateSequence,
+                installedVersion: currentVersion,
+                installedUpdateSequence: currentUpdateSequence
+            ) else { return }
             updateAvailable = latest
         } catch {
+            logger.error("Update check failed: \(error.localizedDescription, privacy: .public)")
             // Silent failure — update checks are best-effort
         }
     }
 
     private func fetchLatestRelease() async throws -> UpdateInfo {
-        let url = URL(string: "\(apiBase)/repos/\(releaseRepo)/releases/latest")!
+        let url = URL(string: "\(apiBase)/repos/\(releaseRepo)/releases?per_page=20")!
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
@@ -76,7 +92,10 @@ final class UpdateChecker: ObservableObject {
             throw UpdateError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
 
-        let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+        let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+        guard let release = selectLatestStableRelease(from: releases, currentTrack: currentReleaseTrack) else {
+            throw UpdateError.noStableRelease
+        }
 
         // Find the ZIP asset
         guard let zipAsset = release.assets.first(where: { $0.name.hasSuffix(".zip") }) else {
@@ -100,7 +119,8 @@ final class UpdateChecker: ObservableObject {
             tag: release.tagName,
             downloadURL: URL(string: zipAsset.browserDownloadURL)!,
             sha256: sha256,
-            releaseNotes: release.body ?? ""
+            releaseNotes: release.body ?? "",
+            updateSequence: release.updateSequence
         )
     }
 
@@ -153,15 +173,9 @@ final class UpdateChecker: ObservableObject {
         try FileManager.default.copyItem(at: newApp, to: dest)
 
         // Relaunch
-        let launcher = Process()
-        launcher.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        launcher.arguments = [dest.path]
-        try launcher.run()
-
-        NSApp.terminate(nil)
+        try ApplicationRelauncher.relaunchAfterCurrentProcessExits(appURL: dest)
+        ApplicationRelauncher.requestApplicationTerminationForRelaunch()
     }
-
-    // MARK: - PAT deobfuscation
 
     private func deobfuscatedPAT() -> String? {
         guard
@@ -191,35 +205,6 @@ final class UpdateChecker: ObservableObject {
         return result.isEmpty ? nil : result
     }
 
-    // MARK: - Version comparison
-
-    private func isNewer(remote: String, than current: String) -> Bool {
-        let remoteParts = normalizeVersion(remote)
-        let currentParts = normalizeVersion(current)
-
-        // Ignore any version in the legacy 0.9.x range — those are from v3 and must not
-        // be treated as upgrades. v4 versions start at 0.3.21.
-        if remoteParts.count >= 2, remoteParts[0] == 0, remoteParts[1] >= 9 {
-            return false
-        }
-
-        // Compare component by component (standard semver numeric comparison)
-        let maxLen = max(remoteParts.count, currentParts.count)
-        for i in 0..<maxLen {
-            let r = i < remoteParts.count ? remoteParts[i] : 0
-            let c = i < currentParts.count ? currentParts[i] : 0
-            if r > c { return true }
-            if r < c { return false }
-        }
-        return false // equal
-    }
-
-    private func normalizeVersion(_ version: String) -> [Int] {
-        version.split(separator: ".").compactMap { Int($0) }
-    }
-
-    // MARK: - SHA-256
-
     private func sha256Hex(of data: Data) -> String {
         var digest = [UInt8](repeating: 0, count: 32)
         data.withUnsafeBytes { ptr in
@@ -232,6 +217,7 @@ final class UpdateChecker: ObservableObject {
 
     enum UpdateError: Error, LocalizedError {
         case httpError(Int)
+        case noStableRelease
         case noZipAsset
         case sha256Mismatch(expected: String, actual: String)
         case extractionFailed
@@ -240,6 +226,7 @@ final class UpdateChecker: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .httpError(let code): return "GitHub API returned HTTP \(code)"
+            case .noStableRelease: return "No stable release is available"
             case .noZipAsset: return "No ZIP asset found in the latest release"
             case .sha256Mismatch(let e, let a): return "SHA-256 mismatch: expected \(e), got \(a)"
             case .extractionFailed: return "Failed to extract update ZIP"
@@ -252,13 +239,30 @@ final class UpdateChecker: ObservableObject {
 
     private struct GitHubRelease: Decodable {
         let tagName: String
+        let draft: Bool
+        let prerelease: Bool
         let body: String?
         let assets: [GitHubAsset]
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
+            case draft
+            case prerelease
             case body
             case assets
+        }
+
+        var normalizedVersion: String {
+            let raw = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
+            return RoomControlReleaseVersioning.canonicalVersion(raw)
+        }
+
+        var releaseTrack: RoomControlReleaseTrack? {
+            RoomControlReleaseVersioning.parseTrack(from: body)
+        }
+
+        var updateSequence: Int? {
+            RoomControlReleaseVersioning.parseUpdateSequence(from: body)
         }
     }
 
@@ -269,6 +273,44 @@ final class UpdateChecker: ObservableObject {
         enum CodingKeys: String, CodingKey {
             case name
             case browserDownloadURL = "browser_download_url"
+        }
+    }
+
+    private func selectLatestStableRelease(
+        from releases: [GitHubRelease],
+        currentTrack: RoomControlReleaseTrack
+    ) -> GitHubRelease? {
+        let stableReleases = releases.filter { !$0.draft && !$0.prerelease && !$0.normalizedVersion.isEmpty }
+        let candidates: [GitHubRelease]
+        switch currentTrack {
+        case .bridge, .date:
+            let dateTrackReleases = stableReleases.filter { $0.releaseTrack == .date && $0.updateSequence != nil }
+            candidates = dateTrackReleases.isEmpty ? stableReleases : dateTrackReleases
+        case .legacy:
+            candidates = stableReleases
+        }
+
+        return candidates.max { lhs, rhs in
+            compareReleases(lhs, rhs) == .orderedAscending
+        }
+    }
+
+    private func compareReleases(_ lhs: GitHubRelease, _ rhs: GitHubRelease) -> ComparisonResult {
+        switch (lhs.updateSequence, rhs.updateSequence) {
+        case let (.some(lhsSequence), .some(rhsSequence)):
+            if lhsSequence < rhsSequence {
+                return .orderedAscending
+            }
+            if lhsSequence > rhsSequence {
+                return .orderedDescending
+            }
+            return RoomControlReleaseVersioning.compareNumericVersions(lhs.normalizedVersion, rhs.normalizedVersion)
+        case (.some, .none):
+            return .orderedDescending
+        case (.none, .some):
+            return .orderedAscending
+        case (.none, .none):
+            return RoomControlReleaseVersioning.compareNumericVersions(lhs.normalizedVersion, rhs.normalizedVersion)
         }
     }
 }

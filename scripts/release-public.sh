@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ARTIFACT_DIR="$PROJECT_DIR/build/artifacts/release"
 APP_NAME="BETR Room Control"
-RELEASE_REPO="${RELEASE_REPO:-BETR-productions/betr-room-control-v4}"
+RELEASE_REPO="${RELEASE_REPO:-BETR-productions/betr-room-control-v2}"
 RELEASE_NOTES=""
 BUILD_ARGS=()
 
@@ -18,7 +18,7 @@ while [[ $# -gt 0 ]]; do
       BUILD_ARGS+=("$1")
       shift
       ;;
-    --sign-identity|--notary-profile|--configuration|--version)
+    --sign-identity|--notary-profile|--configuration|--version|--release-track|--update-sequence)
       BUILD_ARGS+=("$1" "$2")
       shift 2
       ;;
@@ -68,12 +68,13 @@ source "$BUILD_METADATA"
 "$PROJECT_DIR/scripts/validate-upgrade.sh" --candidate "$APP_BUNDLE"
 
 if [[ -z "$RELEASE_NOTES" ]]; then
-  RELEASE_NOTES=$'BËTR Room Control '"${VERSION}"$'\n\nRoom Control SHA: '"${ROOM_CONTROL_GIT_SHA}"$'\nCore SHA: '"${CORE_GIT_SHA}"
+  RELEASE_NOTES=$'BËTR Room Control '"${VERSION}"$'\n\nBETR-Release-Track: '"${RELEASE_TRACK}"$'\nBETR-Update-Sequence: '"${UPDATE_SEQUENCE}"$'\n\nRoom Control SHA: '"${ROOM_CONTROL_GIT_SHA}"$'\nCore SHA: '"${CORE_GIT_SHA}"
 else
-  RELEASE_NOTES="${RELEASE_NOTES}"$'\n\nRoom Control SHA: '"${ROOM_CONTROL_GIT_SHA}"$'\nCore SHA: '"${CORE_GIT_SHA}"
+  RELEASE_NOTES="${RELEASE_NOTES}"$'\n\nBETR-Release-Track: '"${RELEASE_TRACK}"$'\nBETR-Update-Sequence: '"${UPDATE_SEQUENCE}"$'\n\nRoom Control SHA: '"${ROOM_CONTROL_GIT_SHA}"$'\nCore SHA: '"${CORE_GIT_SHA}"
 fi
 
 if gh release view "$TAG" -R "$RELEASE_REPO" >/dev/null 2>&1; then
+  gh release edit "$TAG" -R "$RELEASE_REPO" --title "$TAG" --notes "$RELEASE_NOTES"
   gh release upload "$TAG" "$DMG_PATH" "$ZIP_PATH" -R "$RELEASE_REPO" --clobber
 else
   gh release create "$TAG" "$DMG_PATH" "$ZIP_PATH" \
