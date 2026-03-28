@@ -52,6 +52,7 @@ public final class RoomControlWorkspaceStore: ObservableObject {
     private let stateStore: RoomControlStateStore
     private let coreAgentClient: BETRCoreAgentClient
     private let coreAgentBootstrapper: RoomControlCoreAgentBootstrapper
+    private let hostInterfaceScanner: @Sendable (String, String?) -> [HostInterfaceSummary]
     private let programTileRegistry: OutputLiveTileRegistry
     private let previewTileRegistry: OutputLiveTileRegistry
     private lazy var clipPlayerProducerController = ClipPlayerProducerController(
@@ -71,6 +72,8 @@ public final class RoomControlWorkspaceStore: ObservableObject {
     private var eventObservationTask: Task<Void, Never>?
     private var diagnosticLogRefreshTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
+    private var hostInterfaceRefreshTask: Task<Void, Never>?
+    private var hostInterfaceRefreshGeneration: UInt64 = 0
     private var cancellables: Set<AnyCancellable> = []
     private var restoringPersistedState = false
 
@@ -79,13 +82,21 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         rootDirectory: String = "/Users/joshperlman/Library/Application Support/BETR/com-betr-room-control-v4",
         coreAgentClient: BETRCoreAgentClient = BETRCoreAgentClient(),
         coreAgentBootstrapper: RoomControlCoreAgentBootstrapper = RoomControlCoreAgentBootstrapper(),
-        liveTileRegistry: OutputLiveTileRegistry = OutputLiveTileRegistry()
+        liveTileRegistry: OutputLiveTileRegistry = OutputLiveTileRegistry(),
+        hostInterfaceScanner: @escaping @Sendable (String, String?) -> [HostInterfaceSummary] = { showNetworkCIDR, selectedInterfaceID in
+            HostInterfaceInspector.scan(
+                showNetworkCIDR: showNetworkCIDR,
+                selectedInterfaceID: selectedInterfaceID
+            )
+        },
+        refreshHostInterfacesOnInit: Bool = true
     ) {
         self.productIdentifier = productIdentifier
         self.rootDirectory = rootDirectory
         self.stateStore = RoomControlStateStore(rootDirectory: rootDirectory)
         self.coreAgentClient = coreAgentClient
         self.coreAgentBootstrapper = coreAgentBootstrapper
+        self.hostInterfaceScanner = hostInterfaceScanner
         self.programTileRegistry = liveTileRegistry
         self.previewTileRegistry = OutputLiveTileRegistry()
         self.programTileRegistry.setAttachmentFetcher { [coreAgentClient] outputID, attachmentID in
@@ -97,7 +108,9 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         self.coreAgentLogPath = Self.preferredLogPath(from: Self.coreAgentLogURLs())
         self.networkHelperLogPath = Self.preferredLogPath(from: Self.networkHelperLogURLs())
         bindPersistence()
-        refreshHostInterfaces()
+        if refreshHostInterfacesOnInit {
+            refreshHostInterfaces()
+        }
     }
 
     public func start() {
@@ -156,6 +169,8 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         diagnosticLogRefreshTask = nil
         persistenceTask?.cancel()
         persistenceTask = nil
+        hostInterfaceRefreshTask?.cancel()
+        hostInterfaceRefreshTask = nil
         Task { [coreAgentClient] in
             await coreAgentClient.stopObservingEvents()
         }
@@ -267,15 +282,20 @@ public final class RoomControlWorkspaceStore: ObservableObject {
     }
 
     public func refreshHostInterfaces() {
-        let summaries = HostInterfaceInspector.scan(
-            showNetworkCIDR: hostDraft.showNetworkCIDR,
-            selectedInterfaceID: hostDraft.selectedInterfaceID.nilIfEmpty
-        )
-        hostInterfaceSummaries = summaries
-        if summaries.contains(where: { $0.id == hostDraft.selectedInterfaceID }) == false {
-            hostDraft.selectedInterfaceID = summaries.first(where: \.isRecommended)?.id
-                ?? summaries.first?.id
-                ?? ""
+        let showNetworkCIDR = hostDraft.showNetworkCIDR
+        let selectedInterfaceID = hostDraft.selectedInterfaceID.nilIfEmpty
+        let scanner = hostInterfaceScanner
+        hostInterfaceRefreshGeneration &+= 1
+        let refreshGeneration = hostInterfaceRefreshGeneration
+
+        hostInterfaceRefreshTask?.cancel()
+        hostInterfaceRefreshTask = Task(priority: .userInitiated) {
+            let summaries = await Task.detached(priority: .userInitiated) {
+                scanner(showNetworkCIDR, selectedInterfaceID)
+            }.value
+            guard Task.isCancelled == false else { return }
+            guard self.hostInterfaceRefreshGeneration == refreshGeneration else { return }
+            self.applyHostInterfaceSummaries(summaries)
         }
     }
 
@@ -289,7 +309,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
                 await self.coreAgentBootstrapper.markManagedAgentRestartRequired()
                 self.applyBETRRoomNDIDefaults()
                 self.hostWizardProgressState.currentStep = .interface
-                self.refreshHostInterfaces()
                 self.hostValidation = await self.coreAgentClient.currentValidationSnapshot()
                 self.lastStatusMessage = "Restored normal macOS networking, cleared BETR's saved host ownership, and reset the wizard to Step 1. BETR will not reapply network control until you use Apply + Restart again."
                 self.pendingRestartPromptContext = .startOver
@@ -993,6 +1012,15 @@ public final class RoomControlWorkspaceStore: ObservableObject {
 
     private func selectedHostInterfaceSummary() -> HostInterfaceSummary? {
         hostInterfaceSummaries.first { $0.id == hostDraft.selectedInterfaceID }
+    }
+
+    private func applyHostInterfaceSummaries(_ summaries: [HostInterfaceSummary]) {
+        hostInterfaceSummaries = summaries
+        if summaries.contains(where: { $0.id == hostDraft.selectedInterfaceID }) == false {
+            hostDraft.selectedInterfaceID = summaries.first(where: \.isRecommended)?.id
+                ?? summaries.first?.id
+                ?? ""
+        }
     }
 
     private func completeHostWizardStep(_ step: NDIWizardPersistedStep) {
