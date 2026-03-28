@@ -1,9 +1,6 @@
-// OutputSurfaceMetalView — renders IOSurface thumbnails at full display refresh rate.
-// NSViewRepresentable wrapping MTKView. Inline Metal shaders, aspect-fill scaling,
-// texture caching per IOSurface identity. Renders at CAMetalDisplayLink rate (60fps).
-
 import IOSurface
 import MetalKit
+import RoutingDomain
 import SwiftUI
 import simd
 
@@ -30,8 +27,6 @@ struct OutputSurfaceMetalView: NSViewRepresentable {
     func updateNSView(_ nsView: MTKView, context: Context) {
         context.coordinator.attach(to: nsView, renderFeed: renderFeed)
     }
-
-    // MARK: - Coordinator (MTKViewDelegate)
 
     final class Coordinator: NSObject, MTKViewDelegate {
         private struct Vertex {
@@ -72,7 +67,6 @@ struct OutputSurfaceMetalView: NSViewRepresentable {
             let feedSnapshot = renderFeed.snapshot()
             let drawableSize = view.drawableSize
 
-            // No surface — clear once then skip until surface arrives or size changes
             if feedSnapshot.surface == nil {
                 guard needsClear
                         || lastPresentedSurfaceObjectID != nil
@@ -87,7 +81,6 @@ struct OutputSurfaceMetalView: NSViewRepresentable {
                 return
             }
 
-            // Skip redraw if nothing changed
             let surfaceObjectID = feedSnapshot.surface.map(ObjectIdentifier.init)
             guard needsClear
                     || surfaceObjectID != lastPresentedSurfaceObjectID
@@ -103,14 +96,11 @@ struct OutputSurfaceMetalView: NSViewRepresentable {
             needsClear = false
         }
 
-        // MARK: - Rendering
-
         private func render(surface: IOSurface?, sequence: UInt64, in view: MTKView) {
             guard let commandQueue,
                   let commandBuffer = commandQueue.makeCommandBuffer(),
                   let renderPassDescriptor = view.currentRenderPassDescriptor,
-                  let drawable = view.currentDrawable
-            else {
+                  let drawable = view.currentDrawable else {
                 return
             }
 
@@ -134,12 +124,10 @@ struct OutputSurfaceMetalView: NSViewRepresentable {
                 encoder.endEncoding()
             }
 
-            commandBuffer.label = "OutputTileRender(seq=\(sequence))"
+            commandBuffer.label = "OutputTileRender(sequence=\(sequence))"
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }
-
-        // MARK: - Texture Cache
 
         private func texture(for surface: IOSurface?) -> MTLTexture? {
             guard let device else { return nil }
@@ -172,8 +160,6 @@ struct OutputSurfaceMetalView: NSViewRepresentable {
             cachedTexture = texture
             return texture
         }
-
-        // MARK: - Sampler & Pipeline
 
         private func makeSamplerState() -> MTLSamplerState? {
             guard let device else { return nil }
@@ -228,12 +214,10 @@ struct OutputSurfaceMetalView: NSViewRepresentable {
                 descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
                 return try device.makeRenderPipelineState(descriptor: descriptor)
             } catch {
-                NSLog("OutputSurfaceMetalView: failed to compile Metal pipeline: %@", error.localizedDescription)
+                NSLog("OutputSurfaceMetalView failed to compile Metal pipeline: %@", error.localizedDescription)
                 return nil
             }
         }
-
-        // MARK: - Aspect Fill
 
         private func aspectFillVertices(
             sourceWidth: Int,
@@ -244,8 +228,7 @@ struct OutputSurfaceMetalView: NSViewRepresentable {
             guard sourceWidth > 0,
                   sourceHeight > 0,
                   destinationWidth > 0,
-                  destinationHeight > 0
-            else {
+                  destinationHeight > 0 else {
                 return fullscreenVertices(uMin: 0, uMax: 1, vMin: 0, vMax: 1)
             }
 

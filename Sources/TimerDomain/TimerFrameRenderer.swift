@@ -1,12 +1,9 @@
-// TimerFrameRenderer — CoreText rendering for timer overlay frames.
-// Renders countdown text to BGRA pixel data for IOSurface push.
-
 import CoreGraphics
 import CoreText
 import Foundation
 
-enum TimerFrameRenderer {
-    static func render(
+public enum TimerFrameRenderer {
+    public static func render(
         width: Int,
         height: Int,
         title: String,
@@ -19,8 +16,8 @@ enum TimerFrameRenderer {
         guard byteCount > 0 else { return nil }
 
         var pixelData = Data(count: byteCount)
-        let widthF = CGFloat(width)
-        let heightF = CGFloat(height)
+        let widthValue = CGFloat(width)
+        let heightValue = CGFloat(height)
         let didRender = pixelData.withUnsafeMutableBytes { (rawBuffer: UnsafeMutableRawBufferPointer) -> Bool in
             guard let baseAddress = rawBuffer.baseAddress else { return false }
             guard let context = CGContext(
@@ -36,48 +33,41 @@ enum TimerFrameRenderer {
                 return false
             }
 
-            // Background — dark
             let bounds = CGRect(x: 0, y: 0, width: width, height: height)
             context.setFillColor(CGColor(red: 0.07, green: 0.07, blue: 0.08, alpha: 1))
             context.fill(bounds)
 
-            // Top accent bar — gold when running, grey when stopped
             let accent = isRunning
-                ? CGColor(red: 0.96, green: 0.69, blue: 0.20, alpha: 1)  // BrandTokens.gold approx
+                ? CGColor(red: 0.96, green: 0.69, blue: 0.20, alpha: 1)
                 : CGColor(red: 0.38, green: 0.41, blue: 0.48, alpha: 1)
-            let barHeight = max(10, height / 28)
             context.setFillColor(accent)
-            context.fill(CGRect(x: 0, y: height - barHeight, width: width, height: barHeight))
+            context.fill(CGRect(x: 0, y: height - max(10, height / 28), width: width, height: max(10, height / 28)))
 
-            // Bottom strip
             context.setFillColor(CGColor(red: 0.11, green: 0.13, blue: 0.16, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: width, height: max(10, height / 5)))
 
-            // Title
             drawText(
                 title.uppercased(),
-                in: CGRect(x: widthF * 0.07, y: heightF * 0.79, width: widthF * 0.86, height: heightF * 0.12),
-                fontSize: max(26, heightF * 0.055),
+                in: CGRect(x: widthValue * 0.07, y: heightValue * 0.79, width: widthValue * 0.86, height: heightValue * 0.12),
+                fontSize: max(26, heightValue * 0.055),
                 color: CGColor(red: 0.95, green: 0.95, blue: 0.96, alpha: 1),
                 alignment: .center,
                 context: context
             )
 
-            // Time display
             drawText(
                 timeText,
-                in: CGRect(x: widthF * 0.08, y: heightF * 0.34, width: widthF * 0.84, height: heightF * 0.32),
-                fontSize: max(88, heightF * 0.18),
+                in: CGRect(x: widthValue * 0.08, y: heightValue * 0.34, width: widthValue * 0.84, height: heightValue * 0.32),
+                fontSize: max(88, heightValue * 0.18),
                 color: CGColor(red: 0.99, green: 0.99, blue: 0.99, alpha: 1),
                 alignment: .center,
                 context: context
             )
 
-            // Subtitle
             drawText(
                 subtitle,
-                in: CGRect(x: widthF * 0.07, y: heightF * 0.14, width: widthF * 0.86, height: heightF * 0.12),
-                fontSize: max(24, heightF * 0.04),
+                in: CGRect(x: widthValue * 0.07, y: heightValue * 0.14, width: widthValue * 0.86, height: heightValue * 0.12),
+                fontSize: max(24, heightValue * 0.04),
                 color: CGColor(red: 0.68, green: 0.70, blue: 0.74, alpha: 1),
                 alignment: .center,
                 context: context

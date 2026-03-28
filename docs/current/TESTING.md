@@ -1,0 +1,52 @@
+# BETR Room Control v4 Testing
+
+- owner: unassigned
+- status: current
+- applies_to: `betr-room-control-v4`
+- last_verified: 2026-03-23
+
+## Required Coverage
+- Preserved shell layout: three columns, output cards, PVW/PGM actions, status strip.
+- Grouped NDI settings flow: interface, discovery, multicast, apply, validation.
+- Store action surface parity: assign, clear, preview, take, add/remove output, mute, solo.
+- Agent reconnect behavior once `BETRCoreXPC` is live.
+- Packaged bootstrap validation:
+  - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --configuration debug`
+  - `./scripts/validate-packaged-agent.sh --configuration debug`
+  - expect the validator to report either `embeddedSMAppService` or `embeddedLaunchAgent`, and always report the bundled helper path under `BETR Room Control.app/Contents/Helpers/BETRCoreAgent`
+- Signed release bootstrap validation:
+  - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --release-style`
+  - `./scripts/validate-packaged-agent.sh --configuration release --expected-mode embeddedSMAppService`
+  - expect the validator to fail unless the signed bundle reports `embeddedSMAppService`
+  - expect the validator to confirm the bundled `BETRNetworkHelper` exists while still skipping the one-time privileged install path during bootstrap-check
+- Installer package validation:
+  - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --release-style --version 0.9.8.57 --zip --dmg --pkg --notarize --notary-profile notarytool --staple`
+  - if the local Keychain does not contain `Developer ID Installer: Joshua Perlman (Y8WQ4W4L59)`, expect PKG creation to stop after the DMG/ZIP succeed
+  - once the installer certificate is present, expect:
+    - `BETR-Room-Control-v0.9.8.57.pkg` to be created
+    - `xcrun stapler validate build/artifacts/release/BETR-Room-Control-v0.9.8.57.pkg` to pass
+    - Installer.app to place the app in `/Applications` and preinstall `com.betr.network-helper`
+- Privileged network-helper install validation:
+  - launch the packaged app from `/Applications`
+  - expect a one-time administrator prompt the first time the bundled network helper is installed or updated
+  - after the first successful install, relaunch the app and restart the Mac
+  - expect multicast route reapply to happen without another password prompt unless the helper version changed
+- Safe network-plan validation:
+  - apply the host profile once
+  - relaunch the app without changing the selected NIC
+  - expect no new service-order command when the selected NDI service is already first in the live macOS order
+- Bridge release validation:
+  - Run from the `betr-room-control-v4` repo root with `BETR_CORE_DIR` pointed at the active `betr-core-v3` worktree.
+  - `BETR_CORE_DIR=/path/to/betr-core-v3 ./scripts/release-public.sh --version 0.9.8.57 --release-track bridge --update-sequence 2026032604 --notarize --notary-profile notarytool --staple`
+  - `xcrun stapler validate build/artifacts/release/BETR\\ Room\\ Control.app`
+  - `xcrun stapler validate build/artifacts/release/BETR-Room-Control-v0.9.8.57.dmg`
+  - `spctl -a -vv build/artifacts/release/BETR\\ Room\\ Control.app`
+  - if the installer certificate is present, also validate `BETR-Room-Control-v0.9.8.57.pkg`
+- Updater validation:
+  - `./scripts/validate-upgrade.sh --candidate build/artifacts/release/BETR\\ Room\\ Control.app`
+  - current expected result with bridge `0.9.8.57`: pass against installed `0.9.5.2`
+  - staged next-release proof:
+    - `BETR_CORE_DIR=/path/to/betr-core-v3 ./scripts/build-app.sh --release-style --version .3.23.2 --release-track date --update-sequence 2026032303`
+    - `./scripts/validate-upgrade.sh --installed build/bridge-validation/bridge.app --candidate build/bridge-validation/date.app`
+    - expected result: pass, even though the visible candidate version is `0.3.23.2`
+- Second-Mac install/upgrade validation after local real-NDI proof closes.

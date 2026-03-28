@@ -1,17 +1,17 @@
 // swift-tools-version: 5.10
 
-import PackageDescription
 import Foundation
+import PackageDescription
 
 let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-let workspaceRoot = packageDirectory.deletingLastPathComponent()
+let workspaceRoot = packageDirectory.deletingLastPathComponent().deletingLastPathComponent()
 let environment = ProcessInfo.processInfo.environment
 let candidateCorePaths = [
     environment["BETR_CORE_DIR"],
-    workspaceRoot.appendingPathComponent("betr-core-v3").standardizedFileURL.path(percentEncoded: false),
+    workspaceRoot.appendingPathComponent("macos-apps/betr-core-v3").standardizedFileURL.path(percentEncoded: false),
 ].compactMap { $0 }
 let corePackagePath = candidateCorePaths.first(where: { FileManager.default.fileExists(atPath: $0) })
-    ?? workspaceRoot.appendingPathComponent("betr-core-v3").standardizedFileURL.path(percentEncoded: false)
+    ?? workspaceRoot.appendingPathComponent("macos-apps/betr-core-v3").standardizedFileURL.path(percentEncoded: false)
 
 let package = Package(
     name: "BETRRoomControlV4",
@@ -20,60 +20,60 @@ let package = Package(
         .executable(name: "RoomControlApp", targets: ["RoomControlApp"]),
     ],
     dependencies: [
-        .package(name: "BETRCoreV3", path: corePackagePath),
+        .package(name: "betr-core-v3", path: corePackagePath),
     ],
     targets: [
-        // ── XPC contracts — re-exports BETRCoreXPC + app-specific extensions ──
         .target(
-            name: "RoomControlXPCContracts",
+            name: "RoomControlUIContracts",
             dependencies: [
-                .product(name: "BETRCoreXPC", package: "BETRCoreV3"),
+                "TimerDomain",
+                .product(name: "CoreNDIHost", package: "betr-core-v3"),
             ],
-            path: "Sources/RoomControlXPCContracts"
+            path: "Sources/RoomControlUIContracts"
         ),
-
-        // ── Domain modules ──
         .target(
             name: "ClipPlayerDomain",
-            dependencies: ["RoomControlXPCContracts"],
+            dependencies: [
+                .product(name: "CoreNDIOutput", package: "betr-core-v3"),
+            ],
             path: "Sources/ClipPlayerDomain"
         ),
         .target(
             name: "TimerDomain",
-            dependencies: ["RoomControlXPCContracts"],
             path: "Sources/TimerDomain"
         ),
         .target(
             name: "PresentationDomain",
-            dependencies: [
-                "RoomControlXPCContracts",
-                .product(name: "BETRCoreObjC", package: "BETRCoreV3"),
-            ],
             path: "Sources/PresentationDomain"
         ),
         .target(
             name: "PersistenceDomain",
             dependencies: [
                 "ClipPlayerDomain",
+                "RoomControlUIContracts",
                 "TimerDomain",
-                "PresentationDomain",
-                "RoomControlXPCContracts",
             ],
             path: "Sources/PersistenceDomain"
+        ),
+        .target(
+            name: "HostWizardDomain",
+            dependencies: ["RoomControlUIContracts"],
+            path: "Sources/HostWizardDomain"
         ),
         .target(
             name: "RoutingDomain",
             dependencies: [
                 "ClipPlayerDomain",
+                "HostWizardDomain",
+                "RoomControlUIContracts",
                 "TimerDomain",
-                "PresentationDomain",
-                "PersistenceDomain",
-                "RoomControlXPCContracts",
+                .product(name: "BETRCoreXPC", package: "betr-core-v3"),
+                .product(name: "CoreNDIHost", package: "betr-core-v3"),
+                .product(name: "CoreNDIOutput", package: "betr-core-v3"),
+                .product(name: "CoreNDIPlatform", package: "betr-core-v3"),
             ],
             path: "Sources/RoutingDomain"
         ),
-
-        // ── UI ──
         .target(
             name: "FeatureUI",
             dependencies: [
@@ -81,13 +81,13 @@ let package = Package(
                 "TimerDomain",
                 "PresentationDomain",
                 "PersistenceDomain",
+                "HostWizardDomain",
                 "RoutingDomain",
-                "RoomControlXPCContracts",
+                "RoomControlUIContracts",
+                .product(name: "CoreNDIHost", package: "betr-core-v3"),
             ],
             path: "Sources/FeatureUI"
         ),
-
-        // ── App executable ──
         .executableTarget(
             name: "RoomControlApp",
             dependencies: [
@@ -96,26 +96,26 @@ let package = Package(
                 "TimerDomain",
                 "PresentationDomain",
                 "PersistenceDomain",
+                "HostWizardDomain",
                 "RoutingDomain",
-                "RoomControlXPCContracts",
+                "RoomControlUIContracts",
             ],
             path: "Sources/RoomControlApp"
         ),
-
-        // ── Tests ──
         .testTarget(
-            name: "RoomControlAppTests",
+            name: "RoomControlScaffoldTests",
             dependencies: [
-                "RoomControlApp",
                 "FeatureUI",
+                "HostWizardDomain",
                 "RoutingDomain",
-                "ClipPlayerDomain",
-                "TimerDomain",
-                "PresentationDomain",
-                "PersistenceDomain",
-                "RoomControlXPCContracts",
+                "RoomControlUIContracts",
+                .product(name: "BETRCoreXPC", package: "betr-core-v3"),
+                .product(name: "CoreNDIDiscovery", package: "betr-core-v3"),
+                .product(name: "CoreNDIHost", package: "betr-core-v3"),
+                .product(name: "CoreNDIOutput", package: "betr-core-v3"),
+                .product(name: "CoreNDIPlatform", package: "betr-core-v3"),
             ],
-            path: "Tests/RoomControlAppTests"
+            path: "Tests/RoomControlScaffoldTests"
         ),
     ]
 )

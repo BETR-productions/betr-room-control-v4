@@ -1,0 +1,113 @@
+# BETR Room Control v4 Status
+
+- owner: unassigned
+- status: current
+- applies_to: `betr-room-control-v4`
+- last_verified: 2026-03-27
+
+## Current State
+- Restart-line Room Control repository scaffolded as a clean native repo.
+- The preserved V3 shell and grouped NDI settings surface now boot from workspace snapshots, listen for live core events, and drive slot-native preview/program actions through `BETRCoreAgent`.
+- The in-shell output cards now use the real V4 preview bridge instead of placeholder labels:
+  - `BETRCoreAgent` publishes output preview attach / advance / detach notices over Mach XPC
+  - Room Control fetches `OutputPreviewAttachment` payloads from the agent over a secure `IOSurface` transport
+  - `RoomControlWorkspaceStore` owns a live-tile registry keyed by `outputID`
+  - `OutputSurfaceMetalView` is now the real IOSurface-backed Metal renderer
+- Real `.app` runs now require the bundled `BETRCoreAgent` helper and bundled LaunchAgent plist. They no longer fall back to a source checkout when the app is launched from a packaged bundle.
+- Source builds still support governed developer fallback paths:
+  - explicit `BETR_CORE_AGENT_EXECUTABLE`
+  - governed `BETR_CORE_DIR` + `swift build --product BETRCoreAgent`
+- `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof swift test` passed on 2026-03-23.
+- `scripts/build-app.sh --configuration debug` now assembles `BETR Room Control.app` with:
+  - `Contents/Helpers/BETRCoreAgent`
+  - `Contents/Library/LaunchAgents/com.betr.core-agent.plist`
+  - embedded NDI redistributables under `Contents/Frameworks`
+- `scripts/validate-packaged-agent.sh --configuration debug` passed on 2026-03-23 and proved the packaged app resolved `BETRCoreAgent` from the bundled helper path instead of a source checkout.
+- `scripts/build-app.sh --release-style` now builds a signed release-style bundle with the default Developer ID identity, runtime entitlements, and timestamped nested-code signatures.
+- `scripts/validate-packaged-agent.sh --configuration release --expected-mode embeddedSMAppService` passed on 2026-03-23 and now proves the signed release bundle:
+  - starts through `embeddedSMAppService`
+  - loads workspace truth from the bundled helper
+  - establishes live event observation
+  - reaches the preview-attachment fetch path
+  - carries `CFBundleIconFile = AppIcon` with a bundled `AppIcon.icns`
+- The app now includes the old-line public release seam again:
+  - `UpdateChecker` is wired into the preserved shell/settings flow
+  - the release feed remains `BETR-productions/betr-room-control-v2`
+  - `scripts/validate-upgrade.sh` now checks bundle ID, Team ID, release repository, and version ordering against the installed public app
+  - `scripts/release-public.sh` now builds, validates, and can publish a public-style ZIP + DMG release pair
+- `scripts/build-app.sh --release-style --version .3.23.1 --zip --dmg --notarize --notary-profile notarytool --staple` passed on 2026-03-23 and proved the reset date-line can build and notarize, but it could not be the first updater cutover from the installed public `0.9.5.2`.
+- The updater bridge is now in place:
+  - `scripts/build-app.sh` embeds `BETRReleaseTrack` and `BETRUpdateSequence` into the app bundle
+  - `UpdateChecker` now reads release-track and update-sequence markers from both the installed bundle and GitHub release notes
+  - `scripts/validate-upgrade.sh` now prefers hidden update-sequence ordering when both installed and candidate builds carry it
+  - `scripts/release-public.sh` now publishes or edits release notes with `BETR-Release-Track` and `BETR-Update-Sequence` markers
+- `0.9.8.50` should now be treated as a bad bridge build:
+  - the output card geometry drifted from the preserved V3 layout
+  - the packaged build did not carry the app icon path correctly
+  - live-core startup could surface the helper banner before event observation recovered
+- `0.9.8.53` is now also superseded for operator testing:
+  - persisted proof-mode shutdown state could still replay on restart
+  - `Start Over` did not yet restore normal macOS network ownership
+  - the grouped wizard still exposed drift from the late V3 recovery contract
+- `0.9.8.56` is now also superseded for operator testing:
+  - the NDI settings step still showed a redundant giant NIC list beside the real picker
+  - the selected/live NIC truth was still harder to read than the old operator flow
+  - `Start Over` still completed without an immediate `Restart Now` recovery path
+- Proof mode is now removed from the active-next line:
+  - persisted `"proof_mode"` host state now migrates to `.normal`
+  - host apply/restart no longer emits Wi-Fi or bridge shutdown commands
+  - the wizard no longer exposes proof-mode copy or shutdown toggles
+  - `Start Over` now calls `resetNDIHostEnvironment()` to restore normal macOS network state, clear BETR-owned host state, reload the V3 BETR defaults, and return the wizard to Step 1
+- The host-control path now has a real one-time privileged install seam instead of repeated AppleScript admin prompts:
+  - `BETRNetworkHelper` is now built from `betr-core-v3` and embedded into the Room Control app bundle at `Contents/Helpers/BETRNetworkHelper`
+  - real packaged app launches now install or update the privileged helper once under `/Library/PrivilegedHelperTools/com.betr.network-helper`
+  - the helper owns the root-only `networksetup` and `route` execution path after that first install, so future app launches and machine restarts do not need to prompt again just to re-pin multicast
+  - automated packaged validation now clears the persisted core support directory and skips the one-time helper install step so the validator stays non-interactive while still checking that the bundled helper assets exist
+- Startup is now more resilient on the packaged path:
+  - `BETRCoreAgentClient.waitForAgentAvailability()` now invalidates stale XPC connections between retries instead of hammering one timed-out channel
+  - the default per-operation timeout is now 3 seconds instead of 1.5 seconds so first-launch agent bring-up has more room
+  - the startup blocker screen now distinguishes a real install-context failure from a generic agent startup failure instead of always telling the operator to drag the app again
+- The network-control plan is now more honest before it ever reaches the privileged boundary:
+  - Room Control inspects the live macOS network service order before building a new plan
+  - service-order commands are skipped when the selected NDI service is already at the top
+  - the privileged helper fallback path only uses the old AppleScript executor when the helper is truly unavailable, not when the helper rejects or misexecutes a command
+- The packaging path now supports a real installer package in code:
+  - `scripts/build-app.sh --pkg` now builds a flat installer package that installs the app into `/Applications`
+  - that installer package also preinstalls the root `BETRNetworkHelper` daemon in `/Library/PrivilegedHelperTools` and `/Library/LaunchDaemons` through a `postinstall` script
+  - future in-app updates can continue to use the normal bridge/date-line updater path, and the app only needs to prompt again if the bundled helper changes
+  - this Mac does not currently have the matching `Developer ID Installer` certificate in Keychain, so signed/notarized PKG publication is blocked until that cert is added
+- `0.9.8.57` is now the current published bridge build for the settings/NIC recovery hotfix:
+  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.9.8.57`
+  - assets:
+    - `BETR-Room-Control-v0.9.8.57.zip`
+    - `BETR-Room-Control-v0.9.8.57.dmg`
+  - packaged validation passed with `embeddedSMAppService`, event observation, and preview transport
+  - signed/notarized PKG publication is still blocked locally by the missing `Developer ID Installer` certificate
+  - the settings wizard now uses one clear show-NIC picker with a compact selected/live summary instead of the duplicate picker-plus-card flow
+  - `Start Over` now finishes with a real `Restart BETR Room Control now?` prompt so operators can relaunch cleanly after network reset
+- The bridge hotfix now upgrades cleanly from the installed public `0.9.5.2`, and a staged `.3.23.2` (`0.3.23.2`) candidate now validates cleanly over the bridge when both builds carry ordered update sequences.
+- `spctl -a -vv` now accepts the built app bundle as `Notarized Developer ID`.
+- The left rail now has another operator-parity recovery slice staged on the governed shipping branch:
+  - `RUN OF SHOW`, `CLIP PLAYER`, and `TIMER` are back to the V3 stacked-surface rhythm with divider-separated sections instead of flattened generic cards
+  - Clip Player once again uses the V3 header / preview-status / media region / control row / transport footer structure
+  - Timer once again uses the V3 grouped control surface instead of a single compressed form block
+  - this is a shell-only parity fix; Clip Player local-producer routing, Timer routing, discovery, and output plumbing stay on the current V4 path
+- The center and output shell now have another operator-parity recovery slice staged on the governed shipping branch:
+  - the center rail is back to the V3 split-view rhythm instead of floating padded cards
+  - `PRESENTATION` and `PRESENTER VIEW` once again read as real operator surfaces instead of placeholder stubs
+  - the output lane is back to the tighter V3 density with a denser output list and less wasted outer padding
+  - persisted shell widths now default back to the V3-style proportions so reopening the app does not restore the oversized V4 split bias
+- The Clip Player panel now has a follow-on operator UX recovery slice staged on the governed shipping branch:
+  - the ingest affordance now stays explicit as `drag files here or click Add Files`, even after the playlist already has items
+  - the playlist still reads as a drop target while also supporting drag-reorder within the list
+  - the currently live clip is now called out with a stronger row highlight and `LIVE` state badge instead of relying on a subtle tint
+  - the panel now surfaces when Clip Player is actually routed to an output, including `LIVE ON OUT-1` style status when active
+- Real local NDI proof, migration import, second-Mac validation, and the first updater-compatible cutover from the currently installed public app remain open.
+- Important release truth:
+  - the installed public app on this Mac is `0.9.5.2`
+  - `0.9.8.50` is a bad bridge build and should not be reused
+  - `0.9.8.53` is superseded because it could still replay proof-mode shutdown state across restarts
+  - `0.9.8.56` is superseded because the settings NIC flow and restart recovery still drifted from the operator contract
+  - the public bridge release is now `0.9.8.57`
+  - the next date-line release may be published as `.3.23.2` and canonicalized to `0.3.23.2`
+  - the bridge release is what lets future date-line releases advance through the updater without returning to raw dotted version math

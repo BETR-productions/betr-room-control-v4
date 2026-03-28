@@ -1,0 +1,75 @@
+# BETR Room Control v4 Update Compatibility
+
+- owner: unassigned
+- status: current
+- applies_to: `betr-room-control-v4`
+- last_verified: 2026-03-26
+
+## Current Intent
+- The restart line is targeting in-place upgrade compatibility with the current public Room Control identity.
+- Migration, updater, notarization, and installer validation remain first-class workstreams from the beginning.
+- `scripts/build-app.sh` now preserves the public app identity while assembling a packaged bundle with:
+  - `CFBundleIdentifier = com.betr.room-control`
+  - `Contents/Helpers/BETRCoreAgent`
+  - `Contents/Library/LaunchAgents/com.betr.core-agent.plist`
+  - embedded NDI redistributables under `Contents/Frameworks`
+- `scripts/validate-packaged-agent.sh` now smoke-tests the packaged app path by launching the built app in bootstrap-check mode and confirming the bundled helper path wins over any source-build fallback.
+- `scripts/build-app.sh --release-style` now signs the app and embedded helper with the default Developer ID identity, runtime entitlements, and timestamped nested-code signatures.
+- `scripts/validate-packaged-agent.sh --configuration release --expected-mode embeddedSMAppService` now proves the signed release-style artifact uses `SMAppService` instead of the fallback embedded LaunchAgent path.
+- `scripts/build-app.sh` now also supports:
+  - date-based version input like `.3.23.1`, canonicalized to `0.3.23.1` for bundle/release metadata
+  - embedded updater token packaging
+  - `--notarize`, `--notary-profile`, and `--staple`
+  - `--pkg` for a flat installer package that places the app in `/Applications` and preinstalls the privileged `BETRNetworkHelper`
+- `scripts/validate-upgrade.sh` is now ported from the public v3 line so local release candidates can be checked against the installed public app before publication.
+- `scripts/release-public.sh` is now ported from the public v3 line so v4 can build, validate, and publish the same ZIP + DMG artifact shape when the line is ready, and it now auto-includes the installer PKG when a matching `Developer ID Installer` certificate is present in Keychain.
+- `UpdateChecker` is now wired back into the v4 shell/settings flow and uses the preserved public release feed.
+
+## Current Cutover Truth
+- On 2026-03-23, `scripts/build-app.sh --release-style --version .3.23.1 --zip --dmg --notarize --notary-profile notarytool --staple` proved the reset date-line release path, but it also confirmed that `0.3.23.1` cannot be the first updater cutover from the installed public `0.9.5.2`.
+- The bridge strategy is now the active release contract:
+  - bad bridge build to avoid: `0.9.8.50`
+  - superseded bridge build to avoid: `0.9.8.53`
+  - superseded bridge build to avoid: `0.9.8.56`
+  - current v4 public cutover: `0.9.8.57`
+  - hidden bundle/release metadata:
+    - `BETRReleaseTrack = bridge`
+    - `BETRUpdateSequence = 2026032604`
+  - first date-line follow-up: `.3.23.2` canonicalized to `0.3.23.2`
+  - hidden bundle/release metadata for that follow-up:
+    - `BETRReleaseTrack = date`
+    - `BETRUpdateSequence = 2026032602`
+- On 2026-03-26, `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/release-public.sh --version 0.9.8.54 --release-track bridge --update-sequence 2026032601 --notarize --notary-profile notarytool --staple`:
+  - produced notarized and stapled `0.9.8.54` ZIP and DMG artifacts
+  - passed `validate-packaged-agent.sh` with `embeddedSMAppService`
+  - passed `validate-upgrade.sh` against the installed public `0.9.5.2`
+  - published `v0.9.8.54` to `BETR-productions/betr-room-control-v2`
+- `0.9.8.50` remains documented only as the superseded bridge attempt. It should not be used for operator testing because it shipped the layout, startup-surface, and icon regressions that the hotfix corrected.
+- `0.9.8.53` is now also superseded. It should not be used for operator testing because persisted proof-mode shutdown state could still replay across restart and Start Over was not yet a full host-environment restore.
+- On 2026-03-26, `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --release-style --version 0.9.8.56 --release-track bridge --update-sequence 2026032603 --zip --dmg --pkg --notarize --notary-profile notarytool --staple`:
+  - produced notarized and stapled `0.9.8.56` ZIP and DMG artifacts
+  - passed `validate-packaged-agent.sh` with `embeddedSMAppService`
+  - proved the new PKG assembly path in code, but could not complete signed PKG creation because this Mac does not currently have `Developer ID Installer: Joshua Perlman (Y8WQ4W4L59)` in Keychain
+  - keeps the bridge updater path intact while the real installer publication waits on that installer certificate
+- On the same date, `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/release-public.sh --version 0.9.8.56 --release-track bridge --update-sequence 2026032603 --notarize --notary-profile notarytool --staple`:
+  - published `v0.9.8.56` to `BETR-productions/betr-room-control-v2`
+  - uploaded notarized/stapled `BETR-Room-Control-v0.9.8.56.zip` and `BETR-Room-Control-v0.9.8.56.dmg`
+  - kept PKG publication disabled because the installer certificate is still missing locally
+- `0.9.8.56` is now also superseded for operator testing because:
+  - the NDI settings surface still showed a redundant giant NIC list beside the actual dropdown
+  - Start Over still ended without an immediate restart path
+- On 2026-03-26, `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/release-public.sh --version 0.9.8.57 --release-track bridge --update-sequence 2026032604 --notarize --notary-profile notarytool --staple`:
+  - published `v0.9.8.57` to `BETR-productions/betr-room-control-v2`
+  - uploaded notarized/stapled `BETR-Room-Control-v0.9.8.57.zip` and `BETR-Room-Control-v0.9.8.57.dmg`
+  - kept PKG publication disabled because the installer certificate is still missing locally
+  - carries the operator-facing settings recovery hotfix:
+    - one clear show-NIC picker with selected/live NIC summary
+    - Start Over now offers `Restart Now`
+- On the same date, a staged `.3.23.2` release-style build validated successfully over the bridge app:
+  - installed: `0.9.8.54` with update sequence `2026032601`
+  - candidate: `0.3.23.2` with update sequence `2026032602`
+  - result: pass
+- Practical rule from here:
+  - old public installs upgrade to `0.9.8.57` by visible version ordering
+  - bridge and date-line installs upgrade by hidden update sequence
+  - future date-line releases should keep advancing the hidden sequence even when the visible version resets below `0.9.x`
