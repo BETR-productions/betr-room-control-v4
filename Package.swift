@@ -57,7 +57,10 @@ let package = Package(
         ),
         .target(
             name: "HostWizardDomain",
-            dependencies: ["RoomControlUIContracts"],
+            dependencies: [
+                "RoomControlUIContracts",
+                .product(name: "CoreNDIHost", package: "betr-core-v3"),
+            ],
             path: "Sources/HostWizardDomain"
         ),
         .target(

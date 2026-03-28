@@ -117,6 +117,14 @@ public actor BETRCoreAgentClient {
         return makeWizardValidation(validation)
     }
 
+    public func refreshHostInterfaceInventory(rootDirectory: String) async throws -> FeatureShellState {
+        let response = try await send(.refreshHostInterfaceInventory)
+        guard case let .workspace(workspace) = response else {
+            throw BETRCoreAgentClientError.malformedResponse
+        }
+        return makeShellState(rootDirectory: rootDirectory, workspace: workspace)
+    }
+
     public func makeWizardValidationSnapshot(
         from validation: BETRCoreValidationSnapshotResponse?
     ) -> NDIWizardValidationSnapshot {
@@ -831,7 +839,8 @@ public actor BETRCoreAgentClient {
                 generatedAt: workspace.generatedAt,
                 cards: cards,
                 sources: sources,
-                discoverySummary: workspace.discoverySummary
+                discoverySummary: workspace.discoverySummary,
+                hostInterfaceInventory: workspace.hostInterfaceInventory
             ),
             hostWizardSummary: workspace.hostWizardSummary,
             migrationSummary: workspace.migrationSummary,
@@ -956,7 +965,12 @@ public actor BETRCoreAgentClient {
         }
 
         let discoverySummary = Self.makeDiscoverySummary(validation: validation, sourceCount: sources.count)
-        let workspace = RouterWorkspaceSnapshot(cards: [card], sources: sources, discoverySummary: discoverySummary)
+        let workspace = RouterWorkspaceSnapshot(
+            cards: [card],
+            sources: sources,
+            discoverySummary: discoverySummary,
+            hostInterfaceInventory: nil
+        )
         return FeatureShellState(
             title: "BETR Room Control",
             rootDirectory: rootDirectory,
