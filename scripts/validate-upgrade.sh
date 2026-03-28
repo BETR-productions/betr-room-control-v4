@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-EXPECTED_BUNDLE_ID="com.betr.room-control-v4"
+EXPECTED_BUNDLE_ID="com.betr.room-control"
 EXPECTED_TEAM_ID="Y8WQ4W4L59"
-EXPECTED_RELEASE_REPO="BETR-productions/betr-room-control-v4"
+EXPECTED_RELEASE_REPO="BETR-productions/betr-room-control-v2"
 CANDIDATE_APP=""
 INSTALLED_APP="/Applications/BETR Room Control.app"
 SKIP_CANDIDATE_SIGNATURE=0
@@ -32,9 +32,15 @@ read_team_id() {
 }
 
 normalize_version() {
-  local raw="$1"
+  local raw="${1#.}"
   IFS='.' read -r -a parts <<< "$raw"
   printf "%04d%04d%04d%04d\n" "${parts[0]:-0}" "${parts[1]:-0}" "${parts[2]:-0}" "${parts[3]:-0}"
+}
+
+read_optional_plist_value() {
+  local app_path="$1"
+  local key="$2"
+  /usr/libexec/PlistBuddy -c "Print :$key" "$app_path/Contents/Info.plist" 2>/dev/null || true
 }
 
 while [[ $# -gt 0 ]]; do
@@ -74,36 +80,9 @@ if [[ ! -d "$CANDIDATE_APP" ]]; then
   exit 1
 fi
 
-# If no v4 is installed yet, skip the installed-version check
 if [[ ! -d "$INSTALLED_APP" ]]; then
-  echo "No installed app found at $INSTALLED_APP — skipping upgrade comparison."
-
-  CANDIDATE_BUNDLE_ID="$(read_plist_value "$CANDIDATE_APP" CFBundleIdentifier)"
-  if [[ "$CANDIDATE_BUNDLE_ID" != "$EXPECTED_BUNDLE_ID" ]]; then
-    echo "ERROR: Candidate bundle ID mismatch. Found=$CANDIDATE_BUNDLE_ID Expected=$EXPECTED_BUNDLE_ID"
-    exit 1
-  fi
-
-  CANDIDATE_RELEASE_REPO="$(read_plist_value "$CANDIDATE_APP" BETRReleaseRepository)"
-  if [[ "$CANDIDATE_RELEASE_REPO" != "$EXPECTED_RELEASE_REPO" ]]; then
-    echo "ERROR: Candidate release repo mismatch. Found=$CANDIDATE_RELEASE_REPO Expected=$EXPECTED_RELEASE_REPO"
-    exit 1
-  fi
-
-  if [[ "$SKIP_CANDIDATE_SIGNATURE" -ne 1 ]]; then
-    CANDIDATE_TEAM_ID="$(read_team_id "$CANDIDATE_APP")"
-    if [[ "$CANDIDATE_TEAM_ID" != "$EXPECTED_TEAM_ID" ]]; then
-      echo "ERROR: Candidate Team ID mismatch. Found=$CANDIDATE_TEAM_ID Expected=$EXPECTED_TEAM_ID"
-      exit 1
-    fi
-  fi
-
-  CANDIDATE_VERSION="$(read_plist_value "$CANDIDATE_APP" CFBundleShortVersionString)"
-  echo "Candidate-only validation passed"
-  echo "  candidate: $CANDIDATE_APP ($CANDIDATE_VERSION)"
-  echo "  bundle id: $EXPECTED_BUNDLE_ID"
-  echo "  release repo: $EXPECTED_RELEASE_REPO"
-  exit 0
+  echo "ERROR: Installed app not found: $INSTALLED_APP"
+  exit 1
 fi
 
 CANDIDATE_BUNDLE_ID="$(read_plist_value "$CANDIDATE_APP" CFBundleIdentifier)"
@@ -112,6 +91,10 @@ CANDIDATE_VERSION="$(read_plist_value "$CANDIDATE_APP" CFBundleShortVersionStrin
 INSTALLED_VERSION="$(read_plist_value "$INSTALLED_APP" CFBundleShortVersionString)"
 CANDIDATE_RELEASE_REPO="$(read_plist_value "$CANDIDATE_APP" BETRReleaseRepository)"
 INSTALLED_TEAM_ID="$(read_team_id "$INSTALLED_APP")"
+CANDIDATE_TRACK="$(read_optional_plist_value "$CANDIDATE_APP" BETRReleaseTrack)"
+INSTALLED_TRACK="$(read_optional_plist_value "$INSTALLED_APP" BETRReleaseTrack)"
+CANDIDATE_SEQUENCE="$(read_optional_plist_value "$CANDIDATE_APP" BETRUpdateSequence)"
+INSTALLED_SEQUENCE="$(read_optional_plist_value "$INSTALLED_APP" BETRUpdateSequence)"
 
 if [[ "$CANDIDATE_BUNDLE_ID" != "$EXPECTED_BUNDLE_ID" || "$INSTALLED_BUNDLE_ID" != "$EXPECTED_BUNDLE_ID" ]]; then
   echo "ERROR: Bundle ID mismatch. Candidate=$CANDIDATE_BUNDLE_ID Installed=$INSTALLED_BUNDLE_ID Expected=$EXPECTED_BUNDLE_ID"
@@ -136,7 +119,15 @@ if [[ "$SKIP_CANDIDATE_SIGNATURE" -ne 1 ]]; then
   fi
 fi
 
-if [[ "$(normalize_version "$CANDIDATE_VERSION")" < "$(normalize_version "$INSTALLED_VERSION")" ]]; then
+# Mixed legacy/sequence comparisons intentionally fall back to visible version
+# ordering until both apps carry update-sequence metadata. That preserves the
+# legacy -> bridge hop while letting bridge/date builds compare by sequence.
+if [[ -n "$CANDIDATE_SEQUENCE" && -n "$INSTALLED_SEQUENCE" ]]; then
+  if (( CANDIDATE_SEQUENCE <= INSTALLED_SEQUENCE )); then
+    echo "ERROR: Candidate update sequence $CANDIDATE_SEQUENCE is not newer than installed update sequence $INSTALLED_SEQUENCE"
+    exit 1
+  fi
+elif [[ "$(normalize_version "$CANDIDATE_VERSION")" < "$(normalize_version "$INSTALLED_VERSION")" ]]; then
   echo "ERROR: Candidate version $CANDIDATE_VERSION is older than installed version $INSTALLED_VERSION"
   exit 1
 fi
@@ -146,3 +137,11 @@ echo "  installed: $INSTALLED_APP ($INSTALLED_VERSION)"
 echo "  candidate: $CANDIDATE_APP ($CANDIDATE_VERSION)"
 echo "  bundle id: $EXPECTED_BUNDLE_ID"
 echo "  release repo: $EXPECTED_RELEASE_REPO"
+if [[ -n "$INSTALLED_TRACK" || -n "$CANDIDATE_TRACK" ]]; then
+  echo "  installed track: ${INSTALLED_TRACK:-legacy}"
+  echo "  candidate track: ${CANDIDATE_TRACK:-legacy}"
+fi
+if [[ -n "$INSTALLED_SEQUENCE" || -n "$CANDIDATE_SEQUENCE" ]]; then
+  echo "  installed update sequence: ${INSTALLED_SEQUENCE:-none}"
+  echo "  candidate update sequence: ${CANDIDATE_SEQUENCE:-none}"
+fi
