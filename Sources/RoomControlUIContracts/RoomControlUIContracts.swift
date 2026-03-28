@@ -245,17 +245,20 @@ public struct RouterWorkspaceSnapshot: Sendable, Equatable {
     public var cards: [RoomControlOutputCardState]
     public var sources: [RouterWorkspaceSourceState]
     public var discoverySummary: String
+    public var hostInterfaceInventory: BETRCoreHostInterfaceInventorySnapshot?
 
     public init(
         generatedAt: Date = Date(),
         cards: [RoomControlOutputCardState],
         sources: [RouterWorkspaceSourceState],
-        discoverySummary: String = "mDNS"
+        discoverySummary: String = "mDNS",
+        hostInterfaceInventory: BETRCoreHostInterfaceInventorySnapshot? = nil
     ) {
         self.generatedAt = generatedAt
         self.cards = cards
         self.sources = sources
         self.discoverySummary = discoverySummary
+        self.hostInterfaceInventory = hostInterfaceInventory
     }
 }
 

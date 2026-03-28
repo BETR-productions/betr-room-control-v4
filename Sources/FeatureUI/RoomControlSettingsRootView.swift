@@ -642,7 +642,7 @@ struct RoomControlSettingsRootView: View {
 
                 HStack(spacing: 12) {
                     Button("Refresh Interfaces") {
-                        store.refreshHostInterfaces()
+                        store.refreshHostInterfaceInventory()
                     }
                     .buttonStyle(.bordered)
 
