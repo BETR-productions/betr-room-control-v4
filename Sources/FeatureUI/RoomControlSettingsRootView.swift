@@ -40,9 +40,6 @@ struct RoomControlSettingsRootView: View {
         .onChange(of: store.hostDraft.showNetworkCIDR) { _, _ in
             store.refreshHostInterfaces()
         }
-        .onChange(of: store.hostDraft.selectedInterfaceID) { _, _ in
-            store.refreshHostInterfaces()
-        }
         .alert(item: $store.pendingRestartPromptContext) { context in
             Alert(
                 title: Text("Restart BETR Room Control now?"),
