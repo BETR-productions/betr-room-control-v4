@@ -3,7 +3,7 @@
 - owner: unassigned
 - status: current
 - applies_to: `betr-room-control-v4`
-- last_verified: 2026-03-27
+- last_verified: 2026-03-28
 
 ## Current State
 - Restart-line Room Control repository scaffolded as a clean native repo.
@@ -86,6 +86,9 @@
   - the settings wizard now uses one clear show-NIC picker with a compact selected/live summary instead of the duplicate picker-plus-card flow
   - `Start Over` now finishes with a real `Restart BETR Room Control now?` prompt so operators can relaunch cleanly after network reset
 - The bridge hotfix now upgrades cleanly from the installed public `0.9.5.2`, and a staged `.3.23.2` (`0.3.23.2`) candidate now validates cleanly over the bridge when both builds carry ordered update sequences.
+- Discovery Server operator UX now follows the same precedence as the core runtime:
+  - `CONNECTED`, `WAITING`, and `CHECK` are driven from SDK listener lifecycle and actual discovery visibility only
+  - the UI no longer shows or reasons about an advisory TCP state for Discovery Server health
 - `spctl -a -vv` now accepts the built app bundle as `Notarized Developer ID`.
 - The left rail now has another operator-parity recovery slice staged on the governed shipping branch:
   - `RUN OF SHOW`, `CLIP PLAYER`, and `TIMER` are back to the V3 stacked-surface rhythm with divider-separated sections instead of flattened generic cards

@@ -28,7 +28,6 @@ final class DiscoveryServerPresentationTests: XCTestCase {
                 normalizedEndpoint: "192.168.55.11:5959",
                 host: "192.168.55.11",
                 port: 5959,
-                tcpReachable: true,
                 validatedAddress: "192.168.55.11:5959",
                 listenerLifecycleState: "connected_visible",
                 senderListenerAttached: true,
@@ -42,7 +41,6 @@ final class DiscoveryServerPresentationTests: XCTestCase {
                 normalizedEndpoint: "192.168.55.12:5959",
                 host: "192.168.55.12",
                 port: 5959,
-                tcpReachable: true,
                 listenerLifecycleState: "attached_waiting",
                 senderListenerAttached: true,
                 senderListenerConnected: false,
@@ -67,6 +65,29 @@ final class DiscoveryServerPresentationTests: XCTestCase {
         XCTAssertEqual(entries.first(where: { $0.id == "192.168.55.12:5959" })?.statusWord, "WAITING")
     }
 
+    func testValidatedAttachedListenerStaysWarningWhileWaitingForConnection() {
+        let row = NDIWizardDiscoveryServerRow(
+            id: "192.168.55.11:5959",
+            configuredURL: "192.168.55.11",
+            normalizedEndpoint: "192.168.55.11:5959",
+            host: "192.168.55.11",
+            port: 5959,
+            validatedAddress: "192.168.55.11:5959",
+            listenerLifecycleState: "attached_waiting",
+            senderListenerAttached: true,
+            senderListenerConnected: false,
+            receiverListenerAttached: true,
+            receiverListenerConnected: false
+        )
+
+        XCTAssertEqual(row.discoveryVisualState, .warning)
+        XCTAssertEqual(row.discoveryStatusWord, "WAITING")
+        XCTAssertEqual(
+            row.discoveryDetailText,
+            "Listener is attached and waiting for a full connection."
+        )
+    }
+
     func testAggregateStatusFallsBackToMDNSOnlyWhenNoServerIsConfigured() {
         let aggregate = DiscoveryServerPresentationBuilder.aggregate(
             configuredText: "",
@@ -87,7 +108,6 @@ final class DiscoveryServerPresentationTests: XCTestCase {
                 normalizedEndpoint: "192.168.55.11:5959",
                 host: "192.168.55.11",
                 port: 5959,
-                tcpReachable: true,
                 validatedAddress: "192.168.55.11:5959",
                 listenerLifecycleState: "connected_visible",
                 senderListenerAttached: true,

@@ -266,26 +266,30 @@ public enum DiscoveryServerPresentationBuilder {
 }
 
 public extension NDIWizardDiscoveryServerRow {
+    private var hasListenerBringUpEvidence: Bool {
+        senderListenerConnected
+            || receiverListenerConnected
+            || senderListenerAttached
+            || receiverListenerAttached
+            || validatedAddress != nil
+            || listenerLifecycleState == "attaching"
+            || listenerLifecycleState == "attached_waiting"
+    }
+
     var discoveryVisualState: DiscoveryServerVisualState {
         if senderListenerConnected && receiverListenerConnected {
             return .connected
-        }
-        if tcpReachable == false {
-            return .error
         }
         if listenerLifecycleState == "attached_waiting" || listenerLifecycleState == "attaching" {
             return .warning
         }
         if listenerLifecycleState == "degraded" {
-            return senderListenerConnected || receiverListenerConnected ? .warning : .error
+            return hasListenerBringUpEvidence ? .warning : .error
         }
-        if senderListenerConnected || receiverListenerConnected || senderListenerAttached || receiverListenerAttached {
+        if hasListenerBringUpEvidence {
             return .warning
         }
         if senderAttachFailureReason != nil || receiverAttachFailureReason != nil {
-            return .error
-        }
-        if validatedAddress == nil {
             return .error
         }
         return .warning
@@ -315,9 +319,6 @@ public extension NDIWizardDiscoveryServerRow {
         if discoveryVisualState == .connected {
             return validatedAddress.map { "Validated on \($0)." } ?? "Both listeners are connected."
         }
-        if tcpReachable == false {
-            return "TCP to \(normalizedEndpoint) is unreachable."
-        }
         if let degradedReason, degradedReason.isEmpty == false {
             return "\(Self.prettyLabel(from: degradedReason))."
         }
@@ -334,7 +335,7 @@ public extension NDIWizardDiscoveryServerRow {
             return "Listener is attached but not fully connected yet."
         }
         if validatedAddress == nil {
-            return "No validated listener address is live yet."
+            return "No listener instance is live yet."
         }
         return "\(discoveryLifecycleLabel)."
     }

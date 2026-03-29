@@ -1195,7 +1195,6 @@ public actor BETRCoreAgentClient {
             normalizedEndpoint: status.normalizedEndpoint,
             host: status.host,
             port: status.port,
-            tcpReachable: status.tcpReachable,
             validatedAddress: status.validatedAddress,
             listenerLifecycleState: status.listenerLifecycleState.rawValue,
             lastStateChangeAt: status.lastStateChangeAt,
@@ -1337,11 +1336,6 @@ public actor BETRCoreAgentClient {
             return .finderVisibleListenerDegraded
         }
 
-        if remoteVisibilityCount > 0,
-           discoveryServers.contains(where: \.tcpReachable) {
-            return .finderVisibleListenerDegraded
-        }
-
         if discoveryServers.contains(where: {
             $0.senderListenerAttached
                 || $0.receiverListenerAttached
@@ -1351,11 +1345,7 @@ public actor BETRCoreAgentClient {
             return .listenerAttachedNotConnected
         }
 
-        if discoveryServers.contains(where: \.tcpReachable) {
-            return .listenerCreateFailed
-        }
-
-        return .tcpUnreachable
+        return .listenerCreateFailed
     }
 
     private static func activeDiscoveryServerURL(

@@ -151,16 +151,16 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(validation.discoveryServers.count, 1)
         XCTAssertEqual(
             validation.discoveryServers.first?.senderCandidateAddresses,
-            ["192.168.55.11:5959", "ndi://192.168.55.11:5959", "192.168.55.11", "ndi://192.168.55.11"]
+            ["192.168.55.11:5959"]
         )
-        XCTAssertEqual(validation.discoveryServers.first?.senderAttachAttemptCount, 2)
-        XCTAssertEqual(validation.discoveryServers.first?.senderLastAttemptedAddress, "ndi://192.168.55.11")
+        XCTAssertEqual(validation.discoveryServers.first?.senderAttachAttemptCount, 1)
+        XCTAssertEqual(validation.discoveryServers.first?.senderLastAttemptedAddress, "192.168.55.11:5959")
         XCTAssertEqual(
             validation.discoveryServers.first?.receiverCandidateAddresses,
-            ["192.168.55.11:5959", "ndi://192.168.55.11:5959", "192.168.55.11", "ndi://192.168.55.11"]
+            ["192.168.55.11:5959"]
         )
-        XCTAssertEqual(validation.discoveryServers.first?.receiverAttachAttemptCount, 2)
-        XCTAssertEqual(validation.discoveryServers.first?.receiverLastAttemptedAddress, "ndi://192.168.55.11")
+        XCTAssertEqual(validation.discoveryServers.first?.receiverAttachAttemptCount, 1)
+        XCTAssertEqual(validation.discoveryServers.first?.receiverLastAttemptedAddress, "192.168.55.11:5959")
     }
 
     func testCurrentValidationSnapshotKeepsConfiguredDiscoveryServerVisibleWhenListenerStatusIsMissing() async {
@@ -187,7 +187,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(validation.discoveryState, .blocked)
         XCTAssertEqual(
             validation.discoverySummary,
-            "BETR has a Discovery Server configured, but sender and receiver listener status has not come up yet."
+            "BETR has a Discovery Server configured, but no listener instance is live yet."
         )
     }
 
@@ -512,7 +512,6 @@ final class BETRCoreAgentClientTests: XCTestCase {
                             configuredURL: "192.168.55.11",
                             host: "192.168.55.11",
                             port: 5959,
-                            tcpReachable: true,
                             senderListenerAttached: true,
                             senderListenerConnected: true,
                             senderListenerServerURL: "ndi://192.168.55.11",
@@ -556,7 +555,6 @@ final class BETRCoreAgentClientTests: XCTestCase {
                             configuredURL: "192.168.55.11",
                             host: "192.168.55.11",
                             port: 5959,
-                            tcpReachable: false,
                             senderListenerAttached: true,
                             senderListenerConnected: false,
                             senderListenerServerURL: "ndi://192.168.55.11",
@@ -600,7 +598,6 @@ final class BETRCoreAgentClientTests: XCTestCase {
                             configuredURL: "192.168.55.11",
                             host: "192.168.55.11",
                             port: 5959,
-                            tcpReachable: true,
                             normalizedEndpoint: "192.168.55.11:5959",
                             validatedAddress: "192.168.55.11:5959",
                             listenerLifecycleState: .attachedWaiting,
@@ -1563,9 +1560,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
                     configuredURL: "192.168.55.11",
                     host: "192.168.55.11",
                     port: 5959,
-                    tcpReachable: true,
                     normalizedEndpoint: "192.168.55.11:5959",
-                    validatedAddress: "ndi://192.168.55.11",
+                    validatedAddress: "192.168.55.11:5959",
                     listenerLifecycleState: .connectedVisible,
                     lastStateChangeAt: Date(),
                     senderListenerAttached: true,
@@ -1576,25 +1572,15 @@ final class BETRCoreAgentClientTests: XCTestCase {
                     receiverListenerServerURL: "ndi://192.168.55.11",
                     senderAttachDiagnostics: NDIListenerAttachDiagnostics(
                         createFunctionAvailable: true,
-                        candidateAddresses: [
-                            "192.168.55.11:5959",
-                            "ndi://192.168.55.11:5959",
-                            "192.168.55.11",
-                            "ndi://192.168.55.11",
-                        ],
-                        attachAttemptCount: 2,
-                        lastAttemptedAddress: "ndi://192.168.55.11"
+                        candidateAddresses: ["192.168.55.11:5959"],
+                        attachAttemptCount: 1,
+                        lastAttemptedAddress: "192.168.55.11:5959"
                     ),
                     receiverAttachDiagnostics: NDIListenerAttachDiagnostics(
                         createFunctionAvailable: true,
-                        candidateAddresses: [
-                            "192.168.55.11:5959",
-                            "ndi://192.168.55.11:5959",
-                            "192.168.55.11",
-                            "ndi://192.168.55.11",
-                        ],
-                        attachAttemptCount: 2,
-                        lastAttemptedAddress: "ndi://192.168.55.11"
+                        candidateAddresses: ["192.168.55.11:5959"],
+                        attachAttemptCount: 1,
+                        lastAttemptedAddress: "192.168.55.11:5959"
                     )
                 )
             ],
