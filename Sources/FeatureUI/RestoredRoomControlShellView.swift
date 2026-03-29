@@ -245,7 +245,7 @@ private struct RestoredRoomControlDashboard: View {
             return (lastErrorMessage, .blocked)
         }
         if store.hostValidation.overallReady == false {
-            return (store.hostValidation.discoveryNextAction, .warning)
+            return (store.effectiveDiscoveryNextAction, .warning)
         }
         return nil
     }

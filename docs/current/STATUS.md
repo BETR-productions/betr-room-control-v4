@@ -3,7 +3,7 @@
 - owner: unassigned
 - status: current
 - applies_to: `betr-room-control-v4`
-- last_verified: 2026-03-28
+- last_verified: 2026-03-29
 
 ## Current State
 - Restart-line Room Control repository scaffolded as a clean native repo.
@@ -89,6 +89,14 @@
 - Discovery Server operator UX now follows the same precedence as the core runtime:
   - `CONNECTED`, `WAITING`, and `CHECK` are driven from SDK listener lifecycle and actual discovery visibility only
   - the UI no longer shows or reasons about an advisory TCP state for Discovery Server health
+- Discovery restart behavior is now process-aware instead of refresh-driven:
+  - the app bootstrapper stores a one-shot restart intent with reason and optional host fingerprint
+  - ordinary workspace refreshes, validation refreshes, and app reconnects do not imply another helper recycle
+  - workspace and validation snapshots now carry `agentInstanceID` and `agentStartedAt` from the running core process
+- The top Discovery card now tells warmup truth instead of declaring failure during valid listener bring-up:
+  - an intentional helper recycle starts a bounded `15` second warmup window keyed to the new agent instance
+  - `attaching` / `attached_waiting` listeners now keep the aggregate card in `WARMING` or neutral `CHECK` copy instead of “no healthy Discovery Server” failure language
+  - remote source visibility is still current-process truth only; the app does not invent sticky discovery health across restarts
 - `spctl -a -vv` now accepts the built app bundle as `Notarized Developer ID`.
 - The left rail now has another operator-parity recovery slice staged on the governed shipping branch:
   - `RUN OF SHOW`, `CLIP PLAYER`, and `TIMER` are back to the V3 stacked-surface rhythm with divider-separated sections instead of flattened generic cards

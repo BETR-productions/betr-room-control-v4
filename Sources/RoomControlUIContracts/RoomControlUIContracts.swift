@@ -242,6 +242,8 @@ public struct RouterWorkspaceSourceState: Sendable, Equatable, Identifiable {
 
 public struct RouterWorkspaceSnapshot: Sendable, Equatable {
     public let generatedAt: Date
+    public let agentInstanceID: String
+    public let agentStartedAt: Date
     public var cards: [RoomControlOutputCardState]
     public var sources: [RouterWorkspaceSourceState]
     public var discoverySummary: String
@@ -249,12 +251,16 @@ public struct RouterWorkspaceSnapshot: Sendable, Equatable {
 
     public init(
         generatedAt: Date = Date(),
+        agentInstanceID: String = "",
+        agentStartedAt: Date = .distantPast,
         cards: [RoomControlOutputCardState],
         sources: [RouterWorkspaceSourceState],
         discoverySummary: String = "mDNS",
         hostInterfaceInventory: BETRCoreHostInterfaceInventorySnapshot? = nil
     ) {
         self.generatedAt = generatedAt
+        self.agentInstanceID = agentInstanceID
+        self.agentStartedAt = agentStartedAt
         self.cards = cards
         self.sources = sources
         self.discoverySummary = discoverySummary
@@ -756,6 +762,8 @@ public struct NDIOutputTelemetryRow: Sendable, Equatable, Identifiable {
 
 public struct NDIWizardValidationSnapshot: Sendable, Equatable {
     public let checkedAt: Date
+    public let agentInstanceID: String
+    public let agentStartedAt: Date
     public let committedInterfaceBSDName: String?
     public let committedInterfaceCIDR: String?
     public let committedServiceName: String?
@@ -804,6 +812,8 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
 
     public init(
         checkedAt: Date = Date(),
+        agentInstanceID: String = "",
+        agentStartedAt: Date = .distantPast,
         committedInterfaceBSDName: String? = nil,
         committedInterfaceCIDR: String? = nil,
         committedServiceName: String? = nil,
@@ -851,6 +861,8 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
         lastBETRRestartAt: Date? = nil
     ) {
         self.checkedAt = checkedAt
+        self.agentInstanceID = agentInstanceID
+        self.agentStartedAt = agentStartedAt
         self.committedInterfaceBSDName = committedInterfaceBSDName
         self.committedInterfaceCIDR = committedInterfaceCIDR
         self.committedServiceName = committedServiceName

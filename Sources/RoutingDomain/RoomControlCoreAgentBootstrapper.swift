@@ -1,7 +1,13 @@
 import BETRCoreXPC
 import CoreNDIHost
 import Foundation
+import OSLog
 import ServiceManagement
+
+private let roomControlCoreAgentBootstrapLogger = Logger(
+    subsystem: "com.betr.room-control",
+    category: "RoomControlCoreAgentBootstrapper"
+)
 
 public struct RoomControlCoreAgentBootstrapStatus: Sendable, Equatable {
     public enum Mode: String, Sendable, Equatable {
@@ -15,19 +21,44 @@ public struct RoomControlCoreAgentBootstrapStatus: Sendable, Equatable {
     public let plistPath: String
     public let loaded: Bool
     public let note: String
+    public let consumedRestartIntent: RoomControlCoreAgentRestartIntent?
 
     public init(
         mode: Mode,
         executablePath: String,
         plistPath: String,
         loaded: Bool,
-        note: String
+        note: String,
+        consumedRestartIntent: RoomControlCoreAgentRestartIntent? = nil
     ) {
         self.mode = mode
         self.executablePath = executablePath
         self.plistPath = plistPath
         self.loaded = loaded
         self.note = note
+        self.consumedRestartIntent = consumedRestartIntent
+    }
+}
+
+public enum RoomControlCoreAgentRestartReason: String, Codable, Sendable, Equatable {
+    case hostApply = "host_apply"
+    case hostReset = "host_reset"
+    case manualRelaunch = "manual_relaunch"
+}
+
+public struct RoomControlCoreAgentRestartIntent: Codable, Sendable, Equatable {
+    public let reason: RoomControlCoreAgentRestartReason
+    public let requestedAt: Date
+    public let expectedConfigFingerprint: String?
+
+    public init(
+        reason: RoomControlCoreAgentRestartReason,
+        requestedAt: Date = Date(),
+        expectedConfigFingerprint: String? = nil
+    ) {
+        self.reason = reason
+        self.requestedAt = requestedAt
+        self.expectedConfigFingerprint = expectedConfigFingerprint
     }
 }
 
@@ -63,7 +94,7 @@ public actor RoomControlCoreAgentBootstrapper {
     private static let bundledLaunchAgentRelativePath = "Contents/Library/LaunchAgents/\(launchAgentPlistName)"
     private static let preUpdateVersionDefaultsKey = "BETRPreUpdateVersion"
     private static let postUpdateBootstrapResetVersionDefaultsKey = "BETRCoreAgentPostUpdateResetVersion"
-    private static let pendingHostProfileRecycleDefaultsKey = "BETRCoreAgentPendingHostProfileRecycle"
+    private static let pendingManagedAgentRestartIntentDefaultsKey = "BETRCoreAgentPendingManagedRestartIntent"
     private static let liveRunCommand: @Sendable (URL, [String], URL?) throws -> String = { executableURL, arguments, currentDirectoryURL in
         let process = Process()
         process.executableURL = executableURL
@@ -197,12 +228,25 @@ public actor RoomControlCoreAgentBootstrapper {
     }
 
     public func stopManagedAgentForRelaunch() {
-        userDefaults.set(true, forKey: Self.pendingHostProfileRecycleDefaultsKey)
+        if currentManagedAgentRestartIntent() == nil {
+            saveManagedAgentRestartIntent(
+                RoomControlCoreAgentRestartIntent(reason: .manualRelaunch)
+            )
+        }
+        roomControlCoreAgentBootstrapLogger.info("Booting out BETRCoreAgent for an intentional relaunch.")
         _ = try? launchctl(["bootout", launchDomainLabel()])
     }
 
-    public func markManagedAgentRestartRequired() {
-        userDefaults.set(true, forKey: Self.pendingHostProfileRecycleDefaultsKey)
+    public func markManagedAgentRestartRequired(
+        reason: RoomControlCoreAgentRestartReason,
+        expectedConfigFingerprint: String? = nil
+    ) {
+        saveManagedAgentRestartIntent(
+            RoomControlCoreAgentRestartIntent(
+                reason: reason,
+                expectedConfigFingerprint: Self.trimmedValue(expectedConfigFingerprint)
+            )
+        )
     }
 
     private func ensureBundledAgentStarted(
@@ -212,7 +256,7 @@ public actor RoomControlCoreAgentBootstrapper {
     ) throws -> RoomControlCoreAgentBootstrapStatus {
         try prepareRuntimeDirectories()
         try removeStaleDeveloperLaunchAgentIfNeeded(expectedExecutablePath: executableURL.path)
-        let recycledPendingHostProfile = try recyclePendingHostProfileRestartIfNeeded(plistName: plistURL.lastPathComponent)
+        let consumedRestartIntent = try consumeManagedAgentRestartIntentIfNeeded(plistName: plistURL.lastPathComponent)
         let resetExistingService = try recyclePostUpdateBundledAgentIfNeeded()
 
         if #available(macOS 13.0, *) {
@@ -226,12 +270,13 @@ public actor RoomControlCoreAgentBootstrapper {
                     loaded: true,
                     note: decoratedNote(
                         bundledRegistrationNote(
-                            recycledPendingHostProfile: recycledPendingHostProfile,
+                            consumedRestartIntent: consumedRestartIntent,
                             resetExistingService: resetExistingService,
                             fallbackUsed: false
                         ),
                         networkHelperNote: networkHelperNote
-                    )
+                    ),
+                    consumedRestartIntent: consumedRestartIntent
                 )
             } catch {
                 let status = try ensureLaunchAgentStarted(
@@ -246,12 +291,13 @@ public actor RoomControlCoreAgentBootstrapper {
                     loaded: status.loaded,
                     note: decoratedNote(
                         bundledRegistrationNote(
-                            recycledPendingHostProfile: recycledPendingHostProfile,
+                            consumedRestartIntent: consumedRestartIntent,
                             resetExistingService: resetExistingService,
                             fallbackUsed: true
                         ),
                         networkHelperNote: networkHelperNote
-                    )
+                    ),
+                    consumedRestartIntent: consumedRestartIntent
                 )
             }
         }
@@ -268,12 +314,13 @@ public actor RoomControlCoreAgentBootstrapper {
             loaded: status.loaded,
             note: decoratedNote(
                 bundledRegistrationNote(
-                    recycledPendingHostProfile: recycledPendingHostProfile,
+                    consumedRestartIntent: consumedRestartIntent,
                     resetExistingService: resetExistingService,
                     fallbackUsed: true
                 ),
                 networkHelperNote: networkHelperNote
-            )
+            ),
+            consumedRestartIntent: consumedRestartIntent
         )
     }
 
@@ -422,22 +469,46 @@ public actor RoomControlCoreAgentBootstrapper {
         return true
     }
 
-    private func recyclePendingHostProfileRestartIfNeeded(plistName: String) throws -> Bool {
-        guard userDefaults.bool(forKey: Self.pendingHostProfileRecycleDefaultsKey) else {
-            return false
+    func currentManagedAgentRestartIntent() -> RoomControlCoreAgentRestartIntent? {
+        guard let data = userDefaults.data(forKey: Self.pendingManagedAgentRestartIntentDefaultsKey) else {
+            return nil
         }
+        let decoder = JSONDecoder()
+        guard let intent = try? decoder.decode(RoomControlCoreAgentRestartIntent.self, from: data) else {
+            userDefaults.removeObject(forKey: Self.pendingManagedAgentRestartIntentDefaultsKey)
+            return nil
+        }
+        return intent
+    }
 
+    private func saveManagedAgentRestartIntent(_ intent: RoomControlCoreAgentRestartIntent) {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(intent) else { return }
+        userDefaults.set(data, forKey: Self.pendingManagedAgentRestartIntentDefaultsKey)
+    }
+
+    private func clearManagedAgentRestartIntent() {
+        userDefaults.removeObject(forKey: Self.pendingManagedAgentRestartIntentDefaultsKey)
+    }
+
+    private func consumeManagedAgentRestartIntentIfNeeded(plistName: String) throws -> RoomControlCoreAgentRestartIntent? {
+        guard let intent = currentManagedAgentRestartIntent() else {
+            return nil
+        }
         if #available(macOS 13.0, *) {
             let service = SMAppService.agent(plistName: plistName)
             try? service.unregister()
         }
         _ = try? launchctl(["bootout", launchDomainLabel()])
-        userDefaults.removeObject(forKey: Self.pendingHostProfileRecycleDefaultsKey)
-        return true
+        clearManagedAgentRestartIntent()
+        roomControlCoreAgentBootstrapLogger.info(
+            "Consumed BETRCoreAgent restart intent reason=\(intent.reason.rawValue, privacy: .public) fingerprint=\(intent.expectedConfigFingerprint ?? "none", privacy: .public)"
+        )
+        return intent
     }
 
     private func bundledRegistrationNote(
-        recycledPendingHostProfile: Bool,
+        consumedRestartIntent: RoomControlCoreAgentRestartIntent?,
         resetExistingService: Bool,
         fallbackUsed: Bool
     ) -> String {
@@ -448,11 +519,11 @@ public actor RoomControlCoreAgentBootstrapper {
             base = "Registered the bundled BETRCoreAgent LaunchAgent with SMAppService."
         }
 
-        if recycledPendingHostProfile && resetExistingService {
-            return "\(base.dropLast()). After recycling the helper for the committed host-profile restart and clearing stale helper state from the previous update."
+        if let consumedRestartIntent, resetExistingService {
+            return "\(base.dropLast()). After recycling the helper for the \(consumedRestartIntent.reason.rawValue) restart intent and clearing stale helper state from the previous update."
         }
-        if recycledPendingHostProfile {
-            return "\(base.dropLast()). After recycling the helper so NDI can reinitialize on the committed host profile."
+        if let consumedRestartIntent {
+            return "\(base.dropLast()). After recycling the helper for the \(consumedRestartIntent.reason.rawValue) restart intent."
         }
         if resetExistingService {
             return "\(base.dropLast()). After clearing stale helper state from the previous update."
@@ -543,6 +614,14 @@ public actor RoomControlCoreAgentBootstrapper {
             return nil
         }
         return version
+    }
+
+    private static func trimmedValue(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isEmpty == false else {
+            return nil
+        }
+        return value
     }
 
     private func isLaunchAgentLoaded() -> Bool {
