@@ -434,7 +434,7 @@ private struct DiscoveryStatusPopover: View {
                         }
 
                         if let validatedAddress = entry.validatedAddress, validatedAddress.isEmpty == false {
-                            Text("Validated: \(validatedAddress)")
+                            Text("Attached: \(validatedAddress)")
                                 .font(BrandTokens.mono(size: 10))
                                 .foregroundStyle(BrandTokens.warmGrey)
                         }

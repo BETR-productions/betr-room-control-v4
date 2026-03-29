@@ -399,7 +399,6 @@ public enum NDIWizardCheckState: String, Sendable, Equatable {
 
 public enum NDIWizardDiscoveryState: String, Sendable, Equatable {
     case noDiscoveryConfigured = "no_discovery_configured"
-    case tcpUnreachable = "tcp_unreachable"
     case listenerCreateFailed = "listener_create_failed"
     case listenerAttachedNotConnected = "listener_attached_not_connected"
     case localSourcesOnlyVisible = "local_sources_only_visible"
@@ -422,7 +421,6 @@ public struct NDIWizardDiscoveryServerRow: Sendable, Equatable, Identifiable {
     public let normalizedEndpoint: String
     public let host: String
     public let port: Int
-    public let tcpReachable: Bool
     public let validatedAddress: String?
     public let listenerLifecycleState: String
     public let lastStateChangeAt: Date?
@@ -448,7 +446,6 @@ public struct NDIWizardDiscoveryServerRow: Sendable, Equatable, Identifiable {
         normalizedEndpoint: String? = nil,
         host: String,
         port: Int,
-        tcpReachable: Bool,
         validatedAddress: String? = nil,
         listenerLifecycleState: String = "detached",
         lastStateChangeAt: Date? = nil,
@@ -473,7 +470,6 @@ public struct NDIWizardDiscoveryServerRow: Sendable, Equatable, Identifiable {
         self.normalizedEndpoint = normalizedEndpoint ?? id
         self.host = host
         self.port = port
-        self.tcpReachable = tcpReachable
         self.validatedAddress = validatedAddress
         self.listenerLifecycleState = listenerLifecycleState
         self.lastStateChangeAt = lastStateChangeAt
@@ -954,7 +950,7 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
             return .passed
         case .noDiscoveryConfigured:
             return .warning
-        case .tcpUnreachable, .listenerCreateFailed:
+        case .listenerCreateFailed:
             return .blocked
         case .listenerAttachedNotConnected, .localSourcesOnlyVisible, .connectedNoSendersVisible:
             return .warning
@@ -965,12 +961,10 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
         switch discoveryDetailState {
         case .noDiscoveryConfigured:
             return "No Discovery Server is configured for the current runtime path."
-        case .tcpUnreachable:
-            return "BETR could not reach the configured Discovery Server over TCP."
         case .listenerCreateFailed:
-            return "BETR has a Discovery Server configured, but sender and receiver listener status has not come up yet."
+            return "BETR has a Discovery Server configured, but no listener instance is live yet."
         case .listenerAttachedNotConnected:
-            return "BETR reached the Discovery Server and attached listeners, but they have not connected yet."
+            return "BETR attached Discovery Server listeners, but the SDK does not report them as connected yet."
         case .localSourcesOnlyVisible:
             return "BETR attached discovery, but only sources from this Mac are visible so far."
         case .finderVisibleListenerDegraded:
@@ -988,11 +982,9 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
         switch discoveryDetailState {
         case .noDiscoveryConfigured:
             return "Add the room Discovery Server address and apply the BETR profile again."
-        case .tcpUnreachable:
-            return "Check that the Discovery Server address is the room-side 192.168.55.x address and that the selected NIC is on that subnet."
         case .listenerCreateFailed:
             if hostApplyLooksSettled {
-                return "The BETR host profile is already committed. Stay focused on Discovery Server listener bring-up and configured endpoint reachability instead of applying again."
+                return "The BETR host profile is already committed. Stay focused on Discovery Server listener bring-up and the configured endpoint instead of applying again."
             }
             return "Restart BETR on the committed profile. If this persists, treat it as listener bring-up trouble instead of a missing Discovery Server config."
         case .listenerAttachedNotConnected:

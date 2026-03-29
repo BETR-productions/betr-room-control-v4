@@ -1370,13 +1370,12 @@ struct RoomControlSettingsRootView: View {
             }
 
             HStack(spacing: 8) {
-                statePill(server.tcpReachable ? "TCP" : "NO TCP", state: server.tcpReachable ? .passed : .blocked)
                 statePill(senderPillLabel(for: server), state: senderPillState(for: server))
                 statePill(receiverPillLabel(for: server), state: receiverPillState(for: server))
             }
 
             keyValueRow("Configured", server.configuredURL)
-            keyValueRow("Validated", server.validatedAddress ?? "Not validated")
+            keyValueRow("Attached", server.validatedAddress ?? "Not attached")
             keyValueRow("Lifecycle", server.discoveryLifecycleLabel)
             keyValueRow("Degraded", server.degradedReason?.replacingOccurrences(of: "_", with: " ") ?? "None")
 

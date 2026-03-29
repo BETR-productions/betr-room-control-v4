@@ -3,13 +3,16 @@
 - owner: unassigned
 - status: current
 - applies_to: `betr-room-control-v4`
-- last_verified: 2026-03-23
+- last_verified: 2026-03-28
 
 ## Required Coverage
 - Preserved shell layout: three columns, output cards, PVW/PGM actions, status strip.
 - Grouped NDI settings flow: interface, discovery, multicast, apply, validation.
 - Store action surface parity: assign, clear, preview, take, add/remove output, mute, solo.
 - Agent reconnect behavior once `BETRCoreXPC` is live.
+- Discovery presentation regression guardrails:
+  - a validated `attached_waiting` Discovery Server row must stay yellow `WAITING` without any synthetic TCP/reachability signal in the UI model
+  - aggregate Discovery health must still surface mixed status without telling the operator discovery is fully down when sources remain visible
 - Packaged bootstrap validation:
   - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --configuration debug`
   - `./scripts/validate-packaged-agent.sh --configuration debug`
