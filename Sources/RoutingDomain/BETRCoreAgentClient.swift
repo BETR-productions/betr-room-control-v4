@@ -862,6 +862,8 @@ public actor BETRCoreAgentClient {
             rootDirectory: rootDirectory,
             workspace: RouterWorkspaceSnapshot(
                 generatedAt: workspace.generatedAt,
+                agentInstanceID: workspace.agentInstanceID,
+                agentStartedAt: workspace.agentStartedAt,
                 cards: cards,
                 sources: sources,
                 discoverySummary: workspace.discoverySummary,
@@ -991,6 +993,9 @@ public actor BETRCoreAgentClient {
 
         let discoverySummary = Self.makeDiscoverySummary(validation: validation, sourceCount: sources.count)
         let workspace = RouterWorkspaceSnapshot(
+            generatedAt: validation?.directorySnapshot?.generatedAt ?? Date(),
+            agentInstanceID: validation?.agentInstanceID ?? "",
+            agentStartedAt: validation?.agentStartedAt ?? .distantPast,
             cards: [card],
             sources: sources,
             discoverySummary: discoverySummary,
@@ -1013,6 +1018,8 @@ public actor BETRCoreAgentClient {
     private func makeWizardValidation(_ validation: BETRCoreValidationSnapshotResponse?) -> NDIWizardValidationSnapshot {
         guard let validation else {
             return NDIWizardValidationSnapshot(
+                agentInstanceID: "",
+                agentStartedAt: .distantPast,
                 discoveryDetailState: .noDiscoveryConfigured,
                 multicastRouteSummary: "BETRCoreAgent has not reported validation yet.",
                 multicastRouteNextAction: "Start the core agent and refresh validation again."
@@ -1029,6 +1036,8 @@ public actor BETRCoreAgentClient {
 
         return NDIWizardValidationSnapshot(
             checkedAt: validation.directorySnapshot?.generatedAt ?? Date(),
+            agentInstanceID: validation.agentInstanceID,
+            agentStartedAt: validation.agentStartedAt,
             committedInterfaceBSDName: hostState.selectedInterfaceBSDName,
             committedInterfaceCIDR: hostState.selectedInterfaceCIDR,
             committedServiceName: hostState.selectedServiceName,

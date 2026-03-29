@@ -1,9 +1,11 @@
 @testable import FeatureUI
 import BETRCoreXPC
+import CoreNDIDiscovery
 import CoreNDIHost
+import CoreNDIPlatform
 import HostWizardDomain
 import RoomControlUIContracts
-import RoutingDomain
+@testable import RoutingDomain
 import XCTest
 
 @MainActor
@@ -117,11 +119,12 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         let userDefaultsSuite = "RoomControlWorkspaceStoreTests-\(UUID().uuidString)"
         let userDefaults = UserDefaults(suiteName: userDefaultsSuite)!
         defer { userDefaults.removePersistentDomain(forName: userDefaultsSuite) }
+        let bootstrapper = makeBootstrapper(userDefaults: userDefaults)
 
         let store = RoomControlWorkspaceStore(
             rootDirectory: rootDirectory,
             coreAgentClient: client,
-            coreAgentBootstrapper: makeBootstrapper(userDefaults: userDefaults)
+            coreAgentBootstrapper: bootstrapper
         )
         store.hostDraft.selectedInterfaceID = "en7"
 
@@ -134,7 +137,66 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
 
         XCTAssertNil(store.pendingRestartPromptContext)
         XCTAssertEqual(store.hostWizardProgressState.currentStep, NDIWizardPersistedStep.apply)
-        XCTAssertTrue(userDefaults.bool(forKey: "BETRCoreAgentPendingHostProfileRecycle"))
+        let pendingIntent = await bootstrapper.currentManagedAgentRestartIntent()
+        XCTAssertEqual(pendingIntent?.reason, .hostApply)
+        store.shutdown()
+    }
+
+    func testStartShowsDiscoveryWarmupAfterConsumedRestartIntent() async {
+        let rootDirectory = NSTemporaryDirectory() + UUID().uuidString
+        let agentStartedAt = Date()
+        let workspace = makeWorkspaceSnapshot(
+            inventory: BETRCoreHostInterfaceInventorySnapshot(),
+            agentInstanceID: "agent-new",
+            agentStartedAt: agentStartedAt
+        )
+        let validation = Self.makeValidationSnapshot(
+            agentInstanceID: "agent-new",
+            agentStartedAt: agentStartedAt,
+            remoteSourceVisibilityCount: 0,
+            discoveryServers: [
+                NDIWizardDiscoveryServerRow(
+                    id: "192.168.55.11:5959",
+                    configuredURL: "192.168.55.11:5959",
+                    normalizedEndpoint: "192.168.55.11:5959",
+                    host: "192.168.55.11",
+                    port: 5959,
+                    validatedAddress: "192.168.55.11:5959",
+                    listenerLifecycleState: "attached_waiting",
+                    senderListenerAttached: true,
+                    senderListenerConnected: false,
+                    receiverListenerAttached: true,
+                    receiverListenerConnected: false
+                )
+            ]
+        )
+        let client = BETRCoreAgentClient(
+            workspaceSnapshotProvider: { workspace },
+            validationSnapshotProvider: { validation },
+            eventObservationProvider: { _ in }
+        )
+        let userDefaultsSuite = "RoomControlWorkspaceStoreWarmupTests-\(UUID().uuidString)"
+        let userDefaults = UserDefaults(suiteName: userDefaultsSuite)!
+        defer { userDefaults.removePersistentDomain(forName: userDefaultsSuite) }
+        let bootstrapper = makeBootstrapper(userDefaults: userDefaults)
+        await bootstrapper.markManagedAgentRestartRequired(
+            reason: .hostApply,
+            expectedConfigFingerprint: "fingerprint-1"
+        )
+
+        let store = RoomControlWorkspaceStore(
+            rootDirectory: rootDirectory,
+            coreAgentClient: client,
+            coreAgentBootstrapper: bootstrapper
+        )
+
+        store.start()
+        await waitForBootstrapAndWarmup(in: store)
+
+        XCTAssertTrue(store.isDiscoveryWarmupActive)
+        XCTAssertEqual(store.discoveryWarmupState?.agentInstanceID, "agent-new")
+        XCTAssertTrue(store.effectiveDiscoverySummaryMessage.contains("warming up"))
+        XCTAssertTrue(store.effectiveDiscoveryNextAction.contains("Do not apply again yet"))
         store.shutdown()
     }
 
@@ -147,6 +209,17 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         }
 
         XCTFail("Timed out waiting for selected interface \(interfaceID)")
+    }
+
+    private func waitForBootstrapAndWarmup(in store: RoomControlWorkspaceStore) async {
+        for _ in 0..<100 {
+            if store.isBootstrapped && store.isDiscoveryWarmupActive {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTFail("Timed out waiting for bootstrap warmup state.")
     }
 
     private func makeRecord(id: String, hardwarePortLabel: String, ipv4CIDR: String) -> BETRCoreHostInterfaceRecord {
@@ -173,9 +246,13 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
     }
 
     private func makeWorkspaceSnapshot(
-        inventory: BETRCoreHostInterfaceInventorySnapshot
+        inventory: BETRCoreHostInterfaceInventorySnapshot,
+        agentInstanceID: String = "",
+        agentStartedAt: Date = .distantPast
     ) -> BETRCoreWorkspaceSnapshotResponse {
         BETRCoreWorkspaceSnapshotResponse(
+            agentInstanceID: agentInstanceID,
+            agentStartedAt: agentStartedAt,
             outputs: [],
             sources: [],
             discoverySummary: "mDNS",
@@ -184,28 +261,124 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         )
     }
 
-    private static func makeValidationSnapshot() -> BETRCoreValidationSnapshotResponse {
-        BETRCoreValidationSnapshotResponse(
+    private static func makeValidationSnapshot(
+        agentInstanceID: String = "",
+        agentStartedAt: Date = .distantPast,
+        remoteSourceVisibilityCount: Int = 0,
+        discoveryServers: [NDIWizardDiscoveryServerRow] = []
+    ) -> BETRCoreValidationSnapshotResponse {
+        let runtimeDiscoveryServers = discoveryServers.map { row in
+            NDIDiscoveryServerStatus(
+                configuredURL: row.configuredURL,
+                host: row.host,
+                port: row.port,
+                normalizedEndpoint: row.normalizedEndpoint,
+                validatedAddress: row.validatedAddress,
+                listenerLifecycleState: NDIListenerLifecycleState(rawValue: row.listenerLifecycleState) ?? .detached,
+                lastStateChangeAt: row.lastStateChangeAt,
+                degradedReason: row.degradedReason.flatMap(NDIListenerLifecycleDegradedReason.init(rawValue:)),
+                senderListenerAttached: row.senderListenerAttached,
+                senderListenerConnected: row.senderListenerConnected,
+                senderListenerServerURL: nil,
+                receiverListenerAttached: row.receiverListenerAttached,
+                receiverListenerConnected: row.receiverListenerConnected,
+                receiverListenerServerURL: nil,
+                senderAttachDiagnostics: NDIListenerAttachDiagnostics(
+                    createFunctionAvailable: row.senderCreateFunctionAvailable,
+                    candidateAddresses: row.senderCandidateAddresses,
+                    attachAttemptCount: row.senderAttachAttemptCount,
+                    lastAttemptedAddress: row.senderLastAttemptedAddress
+                ),
+                receiverAttachDiagnostics: NDIListenerAttachDiagnostics(
+                    createFunctionAvailable: row.receiverCreateFunctionAvailable,
+                    candidateAddresses: row.receiverCandidateAddresses,
+                    attachAttemptCount: row.receiverAttachAttemptCount,
+                    lastAttemptedAddress: row.receiverLastAttemptedAddress
+                )
+            )
+        }
+        let runtimeStatus = runtimeDiscoveryServers.isEmpty
+            ? nil
+            : NDIRuntimeStatus(discoveryServers: runtimeDiscoveryServers)
+        let directorySnapshot: NDIDirectoryRuntimeSnapshot? = {
+            guard runtimeDiscoveryServers.isEmpty == false || remoteSourceVisibilityCount > 0 else {
+                return nil
+            }
+            let listenerAttached = runtimeDiscoveryServers.contains { $0.senderListenerAttached || $0.receiverListenerAttached }
+            let listenerConnected = runtimeDiscoveryServers.contains { $0.senderListenerConnected || $0.receiverListenerConnected }
+            return NDIDirectoryRuntimeSnapshot(
+                presence: NDISourcePresenceSnapshot(
+                    descriptors: [],
+                    discoveryServers: runtimeDiscoveryServers,
+                    activeDiscoveryServerURL: runtimeDiscoveryServers.first?.configuredURL,
+                    listenerAttached: listenerAttached,
+                    listenerConnected: listenerConnected
+                ),
+                catalog: NDISourceCatalogSnapshot(
+                    sources: [],
+                    networkProfile: runtimeStatus?.networkProfile ?? NDINetworkProfile(),
+                    runtimeStatus: runtimeStatus ?? NDIRuntimeStatus()
+                ),
+                sources: [],
+                discovery: NDIDiscoverySnapshot(
+                    activeDiscoveryServerURL: runtimeDiscoveryServers.first?.configuredURL,
+                    finderSourceCount: remoteSourceVisibilityCount,
+                    localFinderSourceCount: 0,
+                    remoteFinderSourceCount: remoteSourceVisibilityCount,
+                    localSourceCount: 0,
+                    remoteSourceCount: remoteSourceVisibilityCount,
+                    senderListenerAttached: runtimeDiscoveryServers.contains(where: { $0.senderListenerAttached }),
+                    senderListenerConnected: runtimeDiscoveryServers.contains(where: { $0.senderListenerConnected }),
+                    receiverListenerAttached: runtimeDiscoveryServers.contains(where: { $0.receiverListenerAttached }),
+                    receiverListenerConnected: runtimeDiscoveryServers.contains(where: { $0.receiverListenerConnected })
+                ),
+                activationTable: NDIActivationTableSnapshot(entries: [])
+            )
+        }()
+
+        return BETRCoreValidationSnapshotResponse(
+            agentInstanceID: agentInstanceID,
+            agentStartedAt: agentStartedAt,
             hostState: BETRNDIHostStateSnapshot(
                 showLocationName: "BETR NDI",
                 showNetworkCIDR: "192.168.55.0/24"
-            )
+            ),
+            runtimeStatus: runtimeStatus,
+            directorySnapshot: directorySnapshot
         )
     }
 
-    private func makeBootstrapper(userDefaults: UserDefaults) -> RoomControlCoreAgentBootstrapper {
+    private func makeBootstrapper(
+        userDefaults: UserDefaults,
+        runCommand: (@Sendable (URL, [String], URL?) throws -> String)? = nil
+    ) -> RoomControlCoreAgentBootstrapper {
+        let fileManager = FileManager.default
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let appBundleURL = temporaryDirectory.appendingPathComponent("BETR Room Control.app", isDirectory: true)
+        let applicationsURL = temporaryDirectory.appendingPathComponent("Applications", isDirectory: true)
+        let appBundleURL = applicationsURL.appendingPathComponent("BETR Room Control.app", isDirectory: true)
+        let helperURL = appBundleURL.appendingPathComponent("Contents/Helpers/BETRCoreAgent", isDirectory: false)
+        let mainExecutableURL = appBundleURL.appendingPathComponent("Contents/MacOS/BETR Room Control", isDirectory: false)
+        let plistURL = appBundleURL.appendingPathComponent("Contents/Library/LaunchAgents/com.betr.core-agent.plist", isDirectory: false)
+
+        try? fileManager.createDirectory(at: helperURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: mainExecutableURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        fileManager.createFile(atPath: helperURL.path, contents: Data())
+        fileManager.createFile(atPath: mainExecutableURL.path, contents: Data())
+        fileManager.createFile(atPath: plistURL.path, contents: Data("<plist/>".utf8))
+        try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helperURL.path)
+        try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mainExecutableURL.path)
+
         return RoomControlCoreAgentBootstrapper(
             environment: [:],
             homeDirectoryURL: temporaryDirectory,
             mainBundleURL: appBundleURL,
-            mainExecutableURL: appBundleURL.appendingPathComponent("Contents/MacOS/BETR Room Control"),
+            mainExecutableURL: mainExecutableURL,
             mainBundleVersion: "0.9.8.81",
             userDefaults: userDefaults,
             networkHelperBootstrapper: TestStorePrivilegedNetworkHelperBootstrapper(),
-            runCommand: { _, _, _ in "" }
+            runCommand: runCommand ?? { _, _, _ in "" }
         )
     }
 }

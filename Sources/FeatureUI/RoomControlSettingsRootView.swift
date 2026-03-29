@@ -978,46 +978,15 @@ struct RoomControlSettingsRootView: View {
     }
 
     private var discoveryAggregateStatus: DiscoveryAggregateStatus {
-        DiscoveryServerPresentationBuilder.aggregate(
-            configuredText: store.hostDraft.discoveryServersText,
-            runtimeRows: store.hostValidation.discoveryServers,
-            mdnsEnabled: store.hostDraft.mdnsEnabled
-        )
+        store.discoveryAggregateStatus
     }
 
     private var discoverySummaryMessage: String {
-        if discoveryAggregateStatus.usesMDNSOnly {
-            return "mDNS-only discovery is active. Add a Discovery Server only when the room network requires it."
-        }
-        if discoveryAggregateStatus.totalCount > 1,
-           discoveryAggregateStatus.healthyCount > 0,
-           discoveryAggregateStatus.healthyCount < discoveryAggregateStatus.totalCount {
-            return "Discovery is usable through \(discoveryAggregateStatus.healthyCount) of \(discoveryAggregateStatus.totalCount) configured servers, but one or more still need attention."
-        }
-        if discoveryAggregateStatus.totalCount > 0,
-           discoveryAggregateStatus.healthyCount == 0,
-           store.hostValidation.discoveryDetailState != .noDiscoveryConfigured {
-            return "No configured Discovery Server is healthy yet. Check the server rows below for the exact endpoint that is failing."
-        }
-        return store.hostValidation.discoverySummary
+        store.effectiveDiscoverySummaryMessage
     }
 
     private var discoveryNextAction: String {
-        if discoveryAggregateStatus.usesMDNSOnly {
-            return "If the room depends on a Discovery Server, add it here and apply the BETR profile again."
-        }
-        if discoveryAggregateStatus.totalCount > 1,
-           discoveryAggregateStatus.healthyCount > 0,
-           discoveryAggregateStatus.healthyCount < discoveryAggregateStatus.totalCount {
-            return "Discovery is up through at least one server. Keep working, but fix the degraded server row before you trust redundancy."
-        }
-        if discoveryAggregateStatus.totalCount > 0,
-           discoveryAggregateStatus.healthyCount == 0,
-           store.hostValidation.runtimeConfigMatchesCommittedProfile,
-           store.hostValidation.multicastRoutePinnedToCommittedInterface {
-            return "The BETR host profile is already in place. Stay focused on Discovery Server reachability and listener connection state instead of applying again."
-        }
-        return store.hostValidation.discoveryNextAction
+        store.effectiveDiscoveryNextAction
     }
 
     private var discoveryServerComposer: some View {

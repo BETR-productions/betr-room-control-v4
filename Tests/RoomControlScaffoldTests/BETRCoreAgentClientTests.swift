@@ -39,6 +39,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(shellState.workspace.cards.first?.armedPreviewTile?.sourceID, "ndi-presenter")
         XCTAssertEqual(shellState.workspace.cards.first?.slots.map(\.id), ["S1", "S2", "S3", "S4", "S5", "S6"])
         XCTAssertTrue(shellState.workspace.sources.first(where: { $0.id == "ndi-slideshow" })?.isWarm == true)
+        XCTAssertEqual(shellState.workspace.agentInstanceID, "agent-workspace")
         XCTAssertEqual(shellState.capacity?.configuredOutputs, 2)
         XCTAssertEqual(shellState.capacity?.discoveredSources, 2)
     }
@@ -145,6 +146,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(validation.listenerSenderVisibilityCount, 2)
         XCTAssertEqual(validation.localSourceVisibilityCount, 0)
         XCTAssertEqual(validation.remoteSourceVisibilityCount, 2)
+        XCTAssertEqual(validation.agentInstanceID, "agent-validation")
         XCTAssertEqual(validation.discoveryDetailState, .connectedAndSendersVisible)
         XCTAssertEqual(validation.discoveryState, .passed)
         XCTAssertTrue(validation.multicastRoutePinnedToCommittedInterface)
@@ -1255,12 +1257,12 @@ final class BETRCoreAgentClientTests: XCTestCase {
             }
         )
 
-        await bootstrapper.markManagedAgentRestartRequired()
+        await bootstrapper.markManagedAgentRestartRequired(reason: .hostApply)
         let status = try await bootstrapper.ensureStarted()
 
         XCTAssertEqual(status.mode, .embeddedLaunchAgent)
-        XCTAssertTrue(status.note.contains("committed host profile"))
-        XCTAssertFalse(userDefaults.bool(forKey: "BETRCoreAgentPendingHostProfileRecycle"))
+        XCTAssertTrue(status.note.contains("host_apply restart intent"))
+        XCTAssertEqual(status.consumedRestartIntent?.reason, .hostApply)
         let commandHeads = recorder.commands().compactMap(\.arguments.first)
         XCTAssertEqual(commandHeads.first, "print")
         if let bootoutIndex = commandHeads.firstIndex(of: "bootout"),
@@ -1398,6 +1400,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
     }
 
     private static func makeWorkspaceSnapshot(
+        agentInstanceID: String = "agent-workspace",
+        agentStartedAt: Date = Date(timeIntervalSince1970: 1_700_000_000),
         outputs: [BETRCoreWorkspaceOutputSnapshot] = [
             makeWorkspaceOutput(
                 id: "OUT-1",
@@ -1418,6 +1422,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
         ]
     ) -> BETRCoreWorkspaceSnapshotResponse {
         BETRCoreWorkspaceSnapshotResponse(
+            agentInstanceID: agentInstanceID,
+            agentStartedAt: agentStartedAt,
             outputs: outputs,
             sources: [
                 BETRCoreWorkspaceSourceSnapshot(
@@ -1516,6 +1522,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
     }
 
     private static func makeValidationSnapshot(
+        agentInstanceID: String = "agent-validation",
+        agentStartedAt: Date = Date(timeIntervalSince1970: 1_700_000_100),
         connectedSourceID: String? = "ndi-slideshow",
         programSourceID: String? = "ndi-slideshow",
         previewSourceID: String? = "ndi-presenter",
@@ -1652,6 +1660,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
         )
 
         return BETRCoreValidationSnapshotResponse(
+            agentInstanceID: agentInstanceID,
+            agentStartedAt: agentStartedAt,
             hostState: BETRNDIHostStateSnapshot(
                 showLocationName: "BETR Core Proof",
                 showNetworkCIDR: "192.168.55.0/24",
