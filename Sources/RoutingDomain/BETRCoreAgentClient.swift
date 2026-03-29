@@ -72,6 +72,8 @@ private final class BETRCoreAgentEventReceiver: NSObject, BETRCoreAgentMachXPCEv
 }
 
 public actor BETRCoreAgentClient {
+    private static let hostControlOperationTimeoutNanoseconds: UInt64 = 20_000_000_000
+
     private let machServiceName: String
     private let operationTimeoutNanoseconds: UInt64
     private let workspaceSnapshotProvider: (@Sendable () async throws -> BETRCoreWorkspaceSnapshotResponse)?
@@ -530,8 +532,13 @@ public actor BETRCoreAgentClient {
     }
 
     private func send(_ command: BETRCoreCommandEnvelope) async throws -> BETRCoreCommandResponseEnvelope {
+        let timeoutNanoseconds = commandTimeoutNanoseconds(for: command)
+
         if let commandTransport {
-            return try await performTimedOperation("sending commands to BETRCoreAgent") {
+            return try await performTimedOperation(
+                "sending commands to BETRCoreAgent",
+                timeoutNanoseconds: timeoutNanoseconds
+            ) {
                 try await commandTransport(command)
             }
         }
@@ -539,7 +546,10 @@ public actor BETRCoreAgentClient {
         ensureConnection()
         let requestData = try encode(command)
 
-        return try await withTimedReply("sending commands to BETRCoreAgent") { [self] gate in
+        return try await withTimedReply(
+            "sending commands to BETRCoreAgent",
+            timeoutNanoseconds: timeoutNanoseconds
+        ) { [self] gate in
             guard let proxy = self.connection?.remoteObjectProxyWithErrorHandler({ [weak self] error in
                 Task { await self?.invalidateConnection() }
                 gate.finish(.failure(error))
@@ -567,8 +577,20 @@ public actor BETRCoreAgentClient {
         }
     }
 
+    private func commandTimeoutNanoseconds(for command: BETRCoreCommandEnvelope) -> UInt64 {
+        switch command {
+        case .applyNDIHostProfile,
+             .resetNDIHostEnvironment,
+             .refreshHostInterfaceInventory:
+            return Self.hostControlOperationTimeoutNanoseconds
+        default:
+            return operationTimeoutNanoseconds
+        }
+    }
+
     private func performTimedOperation<T>(
         _ operationDescription: String,
+        timeoutNanoseconds: UInt64? = nil,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
@@ -577,9 +599,10 @@ public actor BETRCoreAgentClient {
                 timeoutTask?.cancel()
                 continuation.resume(with: result)
             }
+            let resolvedTimeoutNanoseconds = timeoutNanoseconds ?? operationTimeoutNanoseconds
 
-            timeoutTask = Task { [operationTimeoutNanoseconds] in
-                try? await Task.sleep(nanoseconds: operationTimeoutNanoseconds)
+            timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: resolvedTimeoutNanoseconds)
                 gate.finish(.failure(timeoutError(for: operationDescription)))
             }
 
@@ -595,6 +618,7 @@ public actor BETRCoreAgentClient {
 
     private func withTimedReply<T>(
         _ operationDescription: String,
+        timeoutNanoseconds: UInt64? = nil,
         operation: @escaping (BETRCoreAgentReplyGate<T>) -> Void
     ) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
@@ -603,9 +627,10 @@ public actor BETRCoreAgentClient {
                 timeoutTask?.cancel()
                 continuation.resume(with: result)
             }
+            let resolvedTimeoutNanoseconds = timeoutNanoseconds ?? operationTimeoutNanoseconds
 
-            timeoutTask = Task { [operationTimeoutNanoseconds] in
-                try? await Task.sleep(nanoseconds: operationTimeoutNanoseconds)
+            timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: resolvedTimeoutNanoseconds)
                 gate.finish(.failure(timeoutError(for: operationDescription)))
             }
 
