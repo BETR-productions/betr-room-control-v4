@@ -2,6 +2,7 @@
 import BETRCoreXPC
 import CoreNDIHost
 import HostWizardDomain
+import RoomControlUIContracts
 import RoutingDomain
 import XCTest
 
@@ -98,6 +99,45 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         store.shutdown()
     }
 
+    func testApplyHostSettingsImmediateRestartInvokesCallbackWithoutPrompt() async {
+        let rootDirectory = NSTemporaryDirectory() + UUID().uuidString
+        let workspace = makeWorkspaceSnapshot(inventory: BETRCoreHostInterfaceInventorySnapshot())
+        let validation = Self.makeValidationSnapshot()
+        let client = BETRCoreAgentClient(
+            workspaceSnapshotProvider: { workspace },
+            validationSnapshotProvider: { validation },
+            commandTransport: { command in
+                guard case .applyNDIHostProfile = command else {
+                    XCTFail("Expected applyNDIHostProfile command.")
+                    return .success
+                }
+                return .success
+            }
+        )
+        let userDefaultsSuite = "RoomControlWorkspaceStoreTests-\(UUID().uuidString)"
+        let userDefaults = UserDefaults(suiteName: userDefaultsSuite)!
+        defer { userDefaults.removePersistentDomain(forName: userDefaultsSuite) }
+
+        let store = RoomControlWorkspaceStore(
+            rootDirectory: rootDirectory,
+            coreAgentClient: client,
+            coreAgentBootstrapper: makeBootstrapper(userDefaults: userDefaults)
+        )
+        store.hostDraft.selectedInterfaceID = "en7"
+
+        let restarted = expectation(description: "restart callback invoked")
+        store.applyHostSettings(restartBehavior: RoomControlWorkspaceStore.RestartBehavior.immediate) {
+            restarted.fulfill()
+        }
+
+        await fulfillment(of: [restarted], timeout: 1.0)
+
+        XCTAssertNil(store.pendingRestartPromptContext)
+        XCTAssertEqual(store.hostWizardProgressState.currentStep, NDIWizardPersistedStep.apply)
+        XCTAssertTrue(userDefaults.bool(forKey: "BETRCoreAgentPendingHostProfileRecycle"))
+        store.shutdown()
+    }
+
     private func waitForSelection(_ interfaceID: String, in store: RoomControlWorkspaceStore) async {
         for _ in 0..<50 {
             if store.hostDraft.selectedInterfaceID == interfaceID {
@@ -143,6 +183,31 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
             hostInterfaceInventory: inventory
         )
     }
+
+    private static func makeValidationSnapshot() -> BETRCoreValidationSnapshotResponse {
+        BETRCoreValidationSnapshotResponse(
+            hostState: BETRNDIHostStateSnapshot(
+                showLocationName: "BETR NDI",
+                showNetworkCIDR: "192.168.55.0/24"
+            )
+        )
+    }
+
+    private func makeBootstrapper(userDefaults: UserDefaults) -> RoomControlCoreAgentBootstrapper {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let appBundleURL = temporaryDirectory.appendingPathComponent("BETR Room Control.app", isDirectory: true)
+        return RoomControlCoreAgentBootstrapper(
+            environment: [:],
+            homeDirectoryURL: temporaryDirectory,
+            mainBundleURL: appBundleURL,
+            mainExecutableURL: appBundleURL.appendingPathComponent("Contents/MacOS/BETR Room Control"),
+            mainBundleVersion: "0.9.8.81",
+            userDefaults: userDefaults,
+            networkHelperBootstrapper: TestStorePrivilegedNetworkHelperBootstrapper(),
+            runCommand: { _, _, _ in "" }
+        )
+    }
 }
 
 private final class LockedCounter: @unchecked Sendable {
@@ -159,5 +224,19 @@ private final class LockedCounter: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storage
+    }
+}
+
+private struct TestStorePrivilegedNetworkHelperBootstrapper: RoomControlPrivilegedNetworkHelperBootstrapControlling {
+    func ensureInstalledIfNeeded(
+        skipInstallation: Bool
+    ) throws -> RoomControlPrivilegedNetworkHelperBootstrapStatus {
+        RoomControlPrivilegedNetworkHelperBootstrapStatus(
+            installed: true,
+            promptedForInstall: false,
+            executablePath: "/Library/PrivilegedHelperTools/com.betr.network-helper",
+            plistPath: "/Library/LaunchDaemons/com.betr.network-helper.plist",
+            note: "noop"
+        )
     }
 }

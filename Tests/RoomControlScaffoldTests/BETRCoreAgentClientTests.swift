@@ -401,6 +401,96 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(request.profile.outputPrefix, "PGM")
     }
 
+    func testApplyHostDraftUsesExtendedTimeoutForSlowHostControlCommands() async throws {
+        let client = BETRCoreAgentClient(
+            operationTimeoutNanoseconds: 50_000_000,
+            commandTransport: { command in
+                try await Task.sleep(nanoseconds: 100_000_000)
+                guard case .applyNDIHostProfile = command else {
+                    XCTFail("Expected applyNDIHostProfile command.")
+                    return .success
+                }
+                return .success
+            }
+        )
+
+        let draft = HostWizardDraft(selectedInterfaceID: "en7")
+        let interfaceSummary = HostInterfaceSummary(
+            id: "en7",
+            serviceName: "USB Ethernet",
+            bsdName: "en7",
+            hardwarePortLabel: "USB Ethernet",
+            displayName: "USB Ethernet",
+            linkKind: .ethernet,
+            isUp: true,
+            isRunning: true,
+            supportsMulticast: true,
+            ipv4Addresses: ["192.168.55.20"],
+            ipv4CIDRs: ["192.168.55.20/24"],
+            primaryIPv4Address: "192.168.55.20",
+            primaryIPv4CIDR: "192.168.55.20/24",
+            matchesShowNetwork: true,
+            isRecommended: true
+        )
+
+        try await client.applyHostDraft(draft, interfaceSummary: interfaceSummary)
+    }
+
+    func testRefreshHostInterfaceInventoryUsesExtendedTimeoutForSlowHostControlCommands() async throws {
+        let expectedWorkspace = Self.makeWorkspaceSnapshot()
+        let client = BETRCoreAgentClient(
+            operationTimeoutNanoseconds: 50_000_000,
+            commandTransport: { command in
+                try await Task.sleep(nanoseconds: 100_000_000)
+                guard case .refreshHostInterfaceInventory = command else {
+                    XCTFail("Expected refreshHostInterfaceInventory command.")
+                    return .success
+                }
+                return .workspace(expectedWorkspace)
+            }
+        )
+
+        let shellState = try await client.refreshHostInterfaceInventory(
+            rootDirectory: "/tmp/betr-room-control-v4-tests"
+        )
+
+        XCTAssertEqual(shellState.workspace.cards.count, expectedWorkspace.outputs.count)
+        XCTAssertEqual(shellState.workspace.sources.count, expectedWorkspace.sources.count)
+    }
+
+    func testResetNDIHostEnvironmentUsesExtendedTimeoutForSlowHostControlCommands() async throws {
+        let client = BETRCoreAgentClient(
+            operationTimeoutNanoseconds: 50_000_000,
+            commandTransport: { command in
+                try await Task.sleep(nanoseconds: 100_000_000)
+                guard case .resetNDIHostEnvironment = command else {
+                    XCTFail("Expected resetNDIHostEnvironment command.")
+                    return .success
+                }
+                return .success
+            }
+        )
+
+        try await client.resetNDIHostEnvironment()
+    }
+
+    func testNonHostCommandsStillUseGenericTimeout() async {
+        let client = BETRCoreAgentClient(
+            operationTimeoutNanoseconds: 50_000_000,
+            commandTransport: { _ in
+                try await Task.sleep(nanoseconds: 100_000_000)
+                return .success
+            }
+        )
+
+        do {
+            try await client.setOutputAudioMuted(outputID: "OUT-1", muted: true)
+            XCTFail("Expected generic command timeout")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("timed out"))
+        }
+    }
+
     func testHostWizardDraftUsesSafeMulticastDefaults() {
         let draft = HostWizardDraft()
 

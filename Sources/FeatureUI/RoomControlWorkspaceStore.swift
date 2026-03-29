@@ -21,6 +21,11 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         public var id: String { rawValue }
     }
 
+    public enum RestartBehavior: Sendable, Equatable {
+        case prompt
+        case immediate
+    }
+
     @Published public private(set) var shellState: FeatureShellState?
     @Published public private(set) var availableDisplays: [String] = []
     @Published public private(set) var presentationState = PresentationXPCState()
@@ -327,7 +332,10 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         hostWizardProgressState.currentStep = step
     }
 
-    public func applyHostSettings() {
+    public func applyHostSettings(
+        restartBehavior: RestartBehavior = .prompt,
+        onRestartReady: (@MainActor () async -> Void)? = nil
+    ) {
         guard hostDraft.selectedInterfaceID.isEmpty == false else {
             lastErrorMessage = "Select the show interface before applying NDI settings."
             return
@@ -345,7 +353,11 @@ public final class RoomControlWorkspaceStore: ObservableObject {
             },
             onSuccess: {
                 await self.coreAgentBootstrapper.markManagedAgentRestartRequired()
-                self.pendingRestartPromptContext = .apply
+                if restartBehavior == .prompt {
+                    self.pendingRestartPromptContext = .apply
+                } else {
+                    self.pendingRestartPromptContext = nil
+                }
                 do {
                     self.hostValidation = try await self.coreAgentClient.refreshValidation()
                 } catch {
@@ -354,6 +366,9 @@ public final class RoomControlWorkspaceStore: ObservableObject {
                 }
                 self.completeHostWizardStep(.apply)
                 self.hostWizardProgressState.currentStep = .apply
+                if restartBehavior == .immediate {
+                    await onRestartReady?()
+                }
             }
         )
     }

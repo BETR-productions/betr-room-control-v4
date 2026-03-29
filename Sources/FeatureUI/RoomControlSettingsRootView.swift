@@ -891,7 +891,9 @@ struct RoomControlSettingsRootView: View {
                         store.applyBETRRoomNDIDefaults()
                     }
                     Button("Apply + Restart Now") {
-                        store.applyHostSettings()
+                        store.applyHostSettings(restartBehavior: .immediate) {
+                            restartApplication()
+                        }
                     }
                     .tint(BrandTokens.gold)
                     Button("Start Over") {
