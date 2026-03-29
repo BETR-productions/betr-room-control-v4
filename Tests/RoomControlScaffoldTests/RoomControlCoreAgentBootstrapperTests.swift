@@ -10,6 +10,7 @@ final class RoomControlCoreAgentBootstrapperTests: XCTestCase {
         let launchctl = LaunchctlRecorder()
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
         let appBundleURL = try makeInstalledAppBundle(at: temporaryDirectory)
         let mainExecutableURL = appBundleURL.appendingPathComponent("Contents/MacOS/BETR Room Control", isDirectory: false)
 
