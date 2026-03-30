@@ -18,6 +18,7 @@
   - aggregate Discovery health must still surface mixed status without telling the operator discovery is fully down when sources remain visible
   - ordinary workspace and validation refreshes must not change `agentInstanceID` or restart Discovery ownership
   - the top Discovery card must stay in neutral `CHECK` copy while listeners are created but not yet connected
+  - the runtime summary card must show `mDNS only` only when no Discovery Server is configured, and `Not connected` when one is configured but the SDK has not connected yet
   - the app must not fall back to the configured server endpoint when the SDK has not reported a connected server URL
   - default discovery rows must not include attach attempts, candidate addresses, or attach failure reasons
   - debug discovery diagnostics must only appear in the explicit `DEBUG ONLY` surface and must not be requested during ordinary validation refresh
