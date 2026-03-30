@@ -80,15 +80,15 @@
   - that installer package also preinstalls the root `BETRNetworkHelper` daemon in `/Library/PrivilegedHelperTools` and `/Library/LaunchDaemons` through a `postinstall` script
   - future in-app updates can continue to use the normal bridge/date-line updater path, and the app only needs to prompt again if the bundled helper changes
   - this Mac does not currently have the matching `Developer ID Installer` certificate in Keychain, so signed/notarized PKG publication is blocked until that cert is added
-- `0.9.8.90` is now the current published bridge build for the receive/output audio-sync guardrail cleanup:
-  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.9.8.90`
+- `0.9.8.91` is now the current published bridge build for the cold-start discovery bootstrap hotfix:
+  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.9.8.91`
   - assets:
-    - `BETR-Room-Control-v0.9.8.90.zip`
-    - `BETR-Room-Control-v0.9.8.90.dmg`
+    - `BETR-Room-Control-v0.9.8.91.zip`
+    - `BETR-Room-Control-v0.9.8.91.dmg`
   - packaged validation passed with `embeddedSMAppService`, event observation, and preview transport
   - signed/notarized PKG publication is still blocked locally by the missing `Developer ID Installer` certificate
-  - the receive/output path now records and tests the frame-sync audio authority rules explicitly
-  - output live-tile meters remain tied to the audio actually published by each output after mute/silence handling
+  - the bundled `BETRCoreAgent` helper now performs a real `NDILibrary.bootstrap()` on cold start before it reports the SDK initialized
+  - this fixes the false-initialized state where remote packaged runs could show `SDK Bootstrap = uninitialized`, `SDK Path = Not reported`, and empty discovery rows even though `libndi_advanced.dylib` was embedded
 - The bridge hotfix now upgrades cleanly from the installed public `0.9.5.2`, and a staged `.3.23.2` (`0.3.23.2`) candidate now validates cleanly over the bridge when both builds carry ordered update sequences.
 - Discovery Server operator UX now follows the same precedence as the core runtime:
   - `WAITING`, `CONNECTED`, and visible-source `PASS` state are driven from SDK listener lifecycle and actual discovery visibility only
@@ -134,6 +134,6 @@
   - `0.9.8.50` is a bad bridge build and should not be reused
   - `0.9.8.53` is superseded because it could still replay proof-mode shutdown state across restarts
   - `0.9.8.56` is superseded because the settings NIC flow and restart recovery still drifted from the operator contract
-  - the public bridge release is now `0.9.8.89`
+  - the public bridge release is now `0.9.8.91`
   - the next date-line release may be published as `.3.23.2` and canonicalized to `0.3.23.2`
   - the bridge release is what lets future date-line releases advance through the updater without returning to raw dotted version math
