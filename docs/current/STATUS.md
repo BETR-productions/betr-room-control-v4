@@ -17,7 +17,7 @@
 - Source builds still support governed developer fallback paths:
   - explicit `BETR_CORE_AGENT_EXECUTABLE`
   - governed `BETR_CORE_DIR` + `swift build --product BETRCoreAgent`
-- `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof swift test` passed on 2026-03-23.
+- `BETR_CORE_DIR=/path/to/betr-core-v3 swift test` passed on 2026-03-23.
 - `scripts/build-app.sh --configuration debug` now assembles `BETR Room Control.app` with:
   - `Contents/Helpers/BETRCoreAgent`
   - `Contents/Library/LaunchAgents/com.betr.core-agent.plist`

@@ -9,9 +9,9 @@
 - `ALIGNED ENOUGH TO CONTINUE`
 - This is the app-boundary side of the Discovery-7 code audit.
 - The canonical combined cross-repo verdict table lives in the companion core note:
-  - [core Discovery SDK alignment audit](/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--discovery-7-single-init-sdk-main/docs/current/DISCOVERY_SDK_ALIGNMENT_AUDIT.md)
+  - `docs/current/DISCOVERY_SDK_ALIGNMENT_AUDIT.md` in the paired `betr-core-v3` worktree
 - The app now consumes a product-only discovery contract by default, with diagnostics isolated behind:
-  - [DEBUG_DISCOVERY_CONTRACT.md](/Users/joshperlman/Developer/betr/worktrees/betr-room-control-v4--discovery-7-single-init-sdk-main/docs/current/DEBUG_DISCOVERY_CONTRACT.md)
+  - [DEBUG_DISCOVERY_CONTRACT.md](./DEBUG_DISCOVERY_CONTRACT.md)
 
 ## References
 - [NDI Startup and Shutdown](https://docs.ndi.video/all/developing-with-ndi/sdk/startup-and-shutdown)
@@ -20,8 +20,9 @@
 - [NDI-FIND](https://docs.ndi.video/all/developing-with-ndi/sdk/ndi-find)
 - [NDI Recv Discovery, Monitor, and Control](https://docs.ndi.video/all/developing-with-ndi/sdk/ndi-recv-discovery-monitor-and-control)
 - [NDI Sender Listener](https://docs.ndi.video/all/developing-with-ndi/sdk/ndi-sender-discovery-and-monitor/ndi-sender-listener)
-- [Tractus launcher](/Users/joshperlman/Downloads/Tractus%20Multiview%20for%20NDI%20%28SWEngine%29.app/Contents/Resources/script)
-- [Tractus engine](/Users/joshperlman/Downloads/Tractus%20Multiview%20for%20NDI%20%28SWEngine%29.app/Contents/Resources/Tractus.Ndi.Multiview.SWEngine)
+- `Tractus launcher`: local example path `${TRACTUS_APP_DIR}/Contents/Resources/script`
+- `Tractus engine`: local example path `${TRACTUS_APP_DIR}/Contents/Resources/Tractus.Ndi.Multiview.SWEngine`
+- Replace `${TRACTUS_APP_DIR}` with the Tractus app path on the machine you are auditing.
 
 ## Tractus Runtime Evidence
 - The live Tractus wrapper still launches a shell script that only execs the engine binary.

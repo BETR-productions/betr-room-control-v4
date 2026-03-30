@@ -21,21 +21,24 @@
   - the app must not fall back to the configured server endpoint when the SDK has not reported a connected server URL
   - default discovery rows must not include attach attempts, candidate addresses, or attach failure reasons
   - debug discovery diagnostics must only appear in the explicit `DEBUG ONLY` surface and must not be requested during ordinary validation refresh
+- Local command placeholders:
+  - set `BETR_CORE_WORKTREE` to the paired `betr-core-v3` checkout when you are not using the default sibling path
+  - set `BETR_ROOM_CONTROL_WORKTREE` when you want a `swift test --package-path` example to target a non-current Room Control checkout
 - Discovery SDK alignment audit commands:
-  - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--discovery-7-single-init-sdk-main swift test --package-path /Users/joshperlman/Developer/betr/worktrees/betr-room-control-v4--discovery-7-single-init-sdk-main`
+  - `BETR_CORE_DIR="${BETR_CORE_WORKTREE:-/path/to/betr-core-v3}" swift test --package-path "${BETR_ROOM_CONTROL_WORKTREE:-$PWD}"`
   - `rg -n "activeDiscoveryServerURL\\(|requestDiscoveryDebugSnapshot|NDIWizardDiscoveryServerDebugRow|showDiscoveryDebug" Sources`
   - compare app mapping against [DISCOVERY_SDK_ALIGNMENT_AUDIT.md](./DISCOVERY_SDK_ALIGNMENT_AUDIT.md) before adding any new discovery presentation logic
 - Packaged bootstrap validation:
-  - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --configuration debug`
+  - `BETR_CORE_DIR="${BETR_CORE_WORKTREE:-/path/to/betr-core-v3}" ./scripts/build-app.sh --configuration debug`
   - `./scripts/validate-packaged-agent.sh --configuration debug`
   - expect the validator to report either `embeddedSMAppService` or `embeddedLaunchAgent`, and always report the bundled helper path under `BETR Room Control.app/Contents/Helpers/BETRCoreAgent`
 - Signed release bootstrap validation:
-  - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --release-style`
+  - `BETR_CORE_DIR="${BETR_CORE_WORKTREE:-/path/to/betr-core-v3}" ./scripts/build-app.sh --release-style`
   - `./scripts/validate-packaged-agent.sh --configuration release --expected-mode embeddedSMAppService`
   - expect the validator to fail unless the signed bundle reports `embeddedSMAppService`
   - expect the validator to confirm the bundled `BETRNetworkHelper` exists while still skipping the one-time privileged install path during bootstrap-check
 - Installer package validation:
-  - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --release-style --version 0.9.8.57 --zip --dmg --pkg --notarize --notary-profile notarytool --staple`
+  - `BETR_CORE_DIR="${BETR_CORE_WORKTREE:-/path/to/betr-core-v3}" ./scripts/build-app.sh --release-style --version 0.9.8.57 --zip --dmg --pkg --notarize --notary-profile notarytool --staple`
   - if the local Keychain does not contain `Developer ID Installer: Joshua Perlman (Y8WQ4W4L59)`, expect PKG creation to stop after the DMG/ZIP succeed
   - once the installer certificate is present, expect:
     - `BETR-Room-Control-v0.9.8.57.pkg` to be created

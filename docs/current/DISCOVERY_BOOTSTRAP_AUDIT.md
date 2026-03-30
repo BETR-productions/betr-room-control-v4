@@ -7,7 +7,7 @@
 
 ## Purpose
 - Record the Room Control side of the Discovery-7 repair so the UI/bootstrap layer does not drift back into outracing the helper.
-- Pair this with the core-side audit in the companion core worktree: [core Discovery bootstrap audit](/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--discovery-7-single-init-sdk-main/docs/current/DISCOVERY_BOOTSTRAP_AUDIT.md)
+- Pair this with the core-side audit in the companion `betr-core-v3` worktree: `docs/current/DISCOVERY_BOOTSTRAP_AUDIT.md`
 
 ## App-Side Audit Findings
 - Room Control still polled the helper immediately after launch, while helper bootstrap work could still be in flight.
@@ -29,11 +29,12 @@
 - [NDI Startup and Shutdown](https://docs.ndi.video/all/developing-with-ndi/sdk/startup-and-shutdown)
 - [NDI Configuration Files](https://docs.ndi.video/all/developing-with-ndi/sdk/configuration-files)
 - [NDI-FIND](https://docs.ndi.video/all/developing-with-ndi/sdk/ndi-find)
-- [Tractus launcher](/Users/joshperlman/Downloads/Tractus%20Multiview%20for%20NDI%20%28SWEngine%29.app/Contents/Resources/script)
-- [Tractus engine](/Users/joshperlman/Downloads/Tractus%20Multiview%20for%20NDI%20%28SWEngine%29.app/Contents/Resources/Tractus.Ndi.Multiview.SWEngine)
+- `Tractus launcher`: local example path `${TRACTUS_APP_DIR}/Contents/Resources/script`
+- `Tractus engine`: local example path `${TRACTUS_APP_DIR}/Contents/Resources/Tractus.Ndi.Multiview.SWEngine`
+- Replace `${TRACTUS_APP_DIR}` with the Tractus app path on the machine you are auditing.
 
 ## Verification
-- `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--discovery-7-single-init-sdk-main swift test --package-path /Users/joshperlman/Developer/betr/worktrees/betr-room-control-v4--discovery-7-single-init-sdk-main`
+- `BETR_CORE_DIR="${BETR_CORE_WORKTREE:-/path/to/betr-core-v3}" swift test --package-path "${BETR_ROOM_CONTROL_WORKTREE:-$PWD}"`
 - Startup client regression:
   - `waitForAgentAvailability()` still retries after a timeout
   - readiness waits no longer inherit the short generic timeout by accident
