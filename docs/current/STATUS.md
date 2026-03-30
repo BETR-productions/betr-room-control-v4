@@ -108,6 +108,10 @@
   - no app-side configured-endpoint fallback remains in connected-server truth
   - default operator copy now distinguishes configured-but-waiting Discovery Server state from mDNS-only mode
   - see [DISCOVERY_SDK_ALIGNMENT_AUDIT.md](./DISCOVERY_SDK_ALIGNMENT_AUDIT.md)
+- Output-thumbnail audio state is now governed explicitly:
+  - output live-tile meters are defined as published-output audio state, not source-side telemetry
+  - the UI keeps lightweight preview visuals, but routed/program readiness remains helper-side frame-sync authority
+  - see [RECEIVE_OUTPUT_AUDIO_SYNC_GUARDRAILS.md](./RECEIVE_OUTPUT_AUDIO_SYNC_GUARDRAILS.md)
 - `spctl -a -vv` now accepts the built app bundle as `Notarized Developer ID`.
 - The left rail now has another operator-parity recovery slice staged on the governed shipping branch:
   - `RUN OF SHOW`, `CLIP PLAYER`, and `TIMER` are back to the V3 stacked-surface rhythm with divider-separated sections instead of flattened generic cards
