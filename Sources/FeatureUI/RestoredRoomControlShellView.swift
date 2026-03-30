@@ -433,12 +433,6 @@ private struct DiscoveryStatusPopover: View {
                                 .foregroundStyle(tintForState(entry.visualState))
                         }
 
-                        if let validatedAddress = entry.validatedAddress, validatedAddress.isEmpty == false {
-                            Text("Attached: \(validatedAddress)")
-                                .font(BrandTokens.mono(size: 10))
-                                .foregroundStyle(BrandTokens.warmGrey)
-                        }
-
                         if let detailText = entry.detailText, detailText.isEmpty == false {
                             Text(detailText)
                                 .font(BrandTokens.display(size: 10))

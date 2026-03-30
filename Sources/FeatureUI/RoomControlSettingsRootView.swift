@@ -11,6 +11,7 @@ struct RoomControlSettingsRootView: View {
     @ObservedObject var updateChecker: UpdateChecker
     @State private var discoveryServerEntryText: String = ""
     @State private var discoveryServerEntryError: String?
+    @State private var showDiscoveryDebug = false
 
     private let wizardSteps: [NDIWizardPersistedStep] = [.interface, .discovery, .naming, .apply, .validation]
 
@@ -259,7 +260,7 @@ struct RoomControlSettingsRootView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         wizardSectionHeader(
                             "Discovery Server Status",
-                            subtitle: "Show the exact server rows, listener attach state, and candidate addresses the helper is trying right now."
+                            subtitle: "Show the exact SDK listener rows BETR is using right now. Debug-only attach diagnostics stay behind an explicit engineering surface."
                         )
 
                         if store.hostValidation.discoveryServers.isEmpty {
@@ -270,6 +271,25 @@ struct RoomControlSettingsRootView: View {
                             ForEach(store.hostValidation.discoveryServers) { server in
                                 discoveryServerCard(server)
                             }
+                        }
+
+                        Toggle(isOn: $showDiscoveryDebug) {
+                            Text("DEBUG ONLY")
+                                .font(BrandTokens.display(size: 11, weight: .semibold))
+                                .foregroundStyle(BrandTokens.offWhite)
+                        }
+                        .toggleStyle(.switch)
+                        .tint(BrandTokens.gold)
+                        .onChange(of: showDiscoveryDebug) { _, enabled in
+                            if enabled {
+                                store.refreshDiscoveryDebugSnapshot()
+                            } else {
+                                store.clearDiscoveryDebugSnapshot()
+                            }
+                        }
+
+                        if showDiscoveryDebug {
+                            debugDiscoverySection
                         }
                     }
                 }
@@ -1344,34 +1364,82 @@ struct RoomControlSettingsRootView: View {
             }
 
             keyValueRow("Configured", server.configuredURL)
-            keyValueRow("Attached", server.validatedAddress ?? "Not attached")
-            keyValueRow("Lifecycle", server.discoveryLifecycleLabel)
-            keyValueRow("Degraded", server.degradedReason?.replacingOccurrences(of: "_", with: " ") ?? "None")
+            keyValueRow("Send Server", server.senderListenerServerURL ?? "Not connected")
+            keyValueRow("Recv Server", server.receiverListenerServerURL ?? "Not connected")
+        }
+        .padding(12)
+        .background(BrandTokens.cardBlack)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
 
-            DisclosureGroup("Diagnostics") {
-                VStack(alignment: .leading, spacing: 8) {
-                    keyValueRow("Host", "\(server.host):\(server.port)")
-                    keyValueRow("Sender Create Fn", server.senderCreateFunctionAvailable ? "available" : "missing")
-                    keyValueRow("Receiver Create Fn", server.receiverCreateFunctionAvailable ? "available" : "missing")
-                    keyValueRow("Sender Attempts", "\(server.senderAttachAttemptCount)")
-                    keyValueRow("Receiver Attempts", "\(server.receiverAttachAttemptCount)")
-                    keyValueRow("Sender Last", server.senderLastAttemptedAddress ?? "Not attempted")
-                    keyValueRow("Receiver Last", server.receiverLastAttemptedAddress ?? "Not attempted")
-                    keyValueRow("Sender Failure", server.senderAttachFailureReason ?? "None")
-                    keyValueRow("Receiver Failure", server.receiverAttachFailureReason ?? "None")
-                    keyValueRow(
-                        "Sender Candidates",
-                        server.senderCandidateAddresses.isEmpty ? "None" : server.senderCandidateAddresses.joined(separator: ", ")
-                    )
-                    keyValueRow(
-                        "Receiver Candidates",
-                        server.receiverCandidateAddresses.isEmpty ? "None" : server.receiverCandidateAddresses.joined(separator: ", ")
-                    )
+    @ViewBuilder
+    private var debugDiscoverySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("DEBUG ONLY. Not used for live discovery decisions.")
+                .font(BrandTokens.display(size: 10, weight: .semibold))
+                .foregroundStyle(BrandTokens.timerYellow)
+
+            HStack(spacing: 10) {
+                Button("Refresh Debug Data") {
+                    store.refreshDiscoveryDebugSnapshot()
                 }
-                .padding(.top, 6)
+                .buttonStyle(.borderedProminent)
+                .tint(BrandTokens.gold)
+
+                Spacer()
             }
-            .font(BrandTokens.display(size: 11, weight: .medium))
-            .foregroundStyle(BrandTokens.offWhite)
+
+            if let snapshot = store.discoveryDebugSnapshot {
+                VStack(alignment: .leading, spacing: 8) {
+                    keyValueRow("SDK Bootstrap", snapshot.sdkBootstrapState)
+                    keyValueRow("Config Dir", snapshot.configDirectory ?? "Not reported")
+                    keyValueRow("Config Path", snapshot.configPath ?? "Not reported")
+                    keyValueRow("SDK Path", snapshot.sdkLoadedPath ?? "Not reported")
+                    keyValueRow("SDK Version", snapshot.sdkVersion ?? "Not reported")
+                }
+
+                if snapshot.discoveryServers.isEmpty {
+                    Text("No discovery debug rows are available from BETRCoreAgent yet.")
+                        .font(BrandTokens.display(size: 11))
+                        .foregroundStyle(BrandTokens.warmGrey)
+                } else {
+                    ForEach(snapshot.discoveryServers) { server in
+                        debugDiscoveryServerCard(server)
+                    }
+                }
+            } else {
+                Text("Debug discovery data has not been loaded yet.")
+                    .font(BrandTokens.display(size: 11))
+                    .foregroundStyle(BrandTokens.warmGrey)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func debugDiscoveryServerCard(_ server: NDIWizardDiscoveryServerDebugRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(server.normalizedEndpoint)
+                .font(BrandTokens.display(size: 11, weight: .semibold))
+                .foregroundStyle(BrandTokens.offWhite)
+
+            keyValueRow("Validated", server.validatedAddress ?? "Not attempted")
+            keyValueRow("Debug State", server.listenerDebugState)
+            keyValueRow("Sender Create Fn", server.senderCreateFunctionAvailable ? "available" : "missing")
+            keyValueRow("Receiver Create Fn", server.receiverCreateFunctionAvailable ? "available" : "missing")
+            keyValueRow("Sender Attempts", "\(server.senderAttachAttemptCount)")
+            keyValueRow("Receiver Attempts", "\(server.receiverAttachAttemptCount)")
+            keyValueRow("Sender Last", server.senderLastAttemptedAddress ?? "Not attempted")
+            keyValueRow("Receiver Last", server.receiverLastAttemptedAddress ?? "Not attempted")
+            keyValueRow("Sender Failure", server.senderAttachFailureReason ?? "None")
+            keyValueRow("Receiver Failure", server.receiverAttachFailureReason ?? "None")
+            keyValueRow(
+                "Sender Candidates",
+                server.senderCandidateAddresses.isEmpty ? "None" : server.senderCandidateAddresses.joined(separator: ", ")
+            )
+            keyValueRow(
+                "Receiver Candidates",
+                server.receiverCandidateAddresses.isEmpty ? "None" : server.receiverCandidateAddresses.joined(separator: ", ")
+            )
         }
         .padding(12)
         .background(BrandTokens.cardBlack)
@@ -1393,7 +1461,7 @@ struct RoomControlSettingsRootView: View {
         if server.senderListenerConnected {
             return "SEND LIVE"
         }
-        if server.senderListenerAttached {
+        if server.senderListenerCreateSucceeded {
             return "SEND WAIT"
         }
         return "SEND OFF"
@@ -1403,7 +1471,7 @@ struct RoomControlSettingsRootView: View {
         if server.senderListenerConnected {
             return .passed
         }
-        if server.senderListenerAttached {
+        if server.senderListenerCreateSucceeded {
             return .warning
         }
         return .blocked
@@ -1413,7 +1481,7 @@ struct RoomControlSettingsRootView: View {
         if server.receiverListenerConnected {
             return "RECV LIVE"
         }
-        if server.receiverListenerAttached {
+        if server.receiverListenerCreateSucceeded {
             return "RECV WAIT"
         }
         return "RECV OFF"
@@ -1423,7 +1491,7 @@ struct RoomControlSettingsRootView: View {
         if server.receiverListenerConnected {
             return .passed
         }
-        if server.receiverListenerAttached {
+        if server.receiverListenerCreateSucceeded {
             return .warning
         }
         return .blocked

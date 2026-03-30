@@ -28,12 +28,12 @@ final class DiscoveryServerPresentationTests: XCTestCase {
                 normalizedEndpoint: "192.168.55.11:5959",
                 host: "192.168.55.11",
                 port: 5959,
-                validatedAddress: "192.168.55.11:5959",
-                listenerLifecycleState: "connected",
-                senderListenerAttached: true,
+                senderListenerCreateSucceeded: true,
                 senderListenerConnected: true,
-                receiverListenerAttached: true,
-                receiverListenerConnected: true
+                senderListenerServerURL: "ndi://192.168.55.11:5959",
+                receiverListenerCreateSucceeded: true,
+                receiverListenerConnected: true,
+                receiverListenerServerURL: "ndi://192.168.55.11:5959"
             ),
             NDIWizardDiscoveryServerRow(
                 id: "192.168.55.12:5959",
@@ -41,10 +41,9 @@ final class DiscoveryServerPresentationTests: XCTestCase {
                 normalizedEndpoint: "192.168.55.12:5959",
                 host: "192.168.55.12",
                 port: 5959,
-                listenerLifecycleState: "attached_waiting",
-                senderListenerAttached: true,
+                senderListenerCreateSucceeded: true,
                 senderListenerConnected: false,
-                receiverListenerAttached: true,
+                receiverListenerCreateSucceeded: true,
                 receiverListenerConnected: false
             )
         ]
@@ -72,11 +71,9 @@ final class DiscoveryServerPresentationTests: XCTestCase {
             normalizedEndpoint: "192.168.55.11:5959",
             host: "192.168.55.11",
             port: 5959,
-            validatedAddress: "192.168.55.11:5959",
-            listenerLifecycleState: "attached_waiting",
-            senderListenerAttached: true,
+            senderListenerCreateSucceeded: true,
             senderListenerConnected: false,
-            receiverListenerAttached: true,
+            receiverListenerCreateSucceeded: true,
             receiverListenerConnected: false
         )
 
@@ -84,7 +81,7 @@ final class DiscoveryServerPresentationTests: XCTestCase {
         XCTAssertEqual(row.discoveryStatusWord, "WAITING")
         XCTAssertEqual(
             row.discoveryDetailText,
-            "Listener exists and the SDK has not reported a connected server yet."
+            "Listeners were created, but the SDK has not reported a connected Discovery Server yet."
         )
     }
 
@@ -108,12 +105,12 @@ final class DiscoveryServerPresentationTests: XCTestCase {
                 normalizedEndpoint: "192.168.55.11:5959",
                 host: "192.168.55.11",
                 port: 5959,
-                validatedAddress: "192.168.55.11:5959",
-                listenerLifecycleState: "connected",
-                senderListenerAttached: true,
+                senderListenerCreateSucceeded: true,
                 senderListenerConnected: true,
-                receiverListenerAttached: true,
-                receiverListenerConnected: true
+                senderListenerServerURL: "ndi://192.168.55.11:5959",
+                receiverListenerCreateSucceeded: true,
+                receiverListenerConnected: true,
+                receiverListenerServerURL: "ndi://192.168.55.11:5959"
             )
         ]
 

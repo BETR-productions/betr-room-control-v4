@@ -33,6 +33,7 @@ public final class RoomControlWorkspaceStore: ObservableObject {
     @Published public private(set) var isBootstrapped = false
     @Published public private(set) var isPerformingAction = false
     @Published public private(set) var hostValidation = NDIWizardValidationSnapshot()
+    @Published public private(set) var discoveryDebugSnapshot: NDIWizardDiscoveryDebugSnapshot?
     @Published public private(set) var hostWizardProgressState = NDIWizardProgressState()
     @Published public private(set) var hostInterfaceSummaries: [HostInterfaceSummary] = []
     @Published public private(set) var timerRuntimeSnapshot = TimerRuntimeSnapshot()
@@ -426,6 +427,23 @@ public final class RoomControlWorkspaceStore: ObservableObject {
                 self.refreshDiagnosticLogs()
             }
         }
+    }
+
+    public func refreshDiscoveryDebugSnapshot() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.lastErrorMessage = nil
+            do {
+                self.discoveryDebugSnapshot = try await self.coreAgentClient.refreshDiscoveryDebugSnapshot()
+                self.lastStatusMessage = "Refreshed discovery debug data from BETRCoreAgent."
+            } catch {
+                self.lastErrorMessage = "Refreshing discovery debug data failed. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    public func clearDiscoveryDebugSnapshot() {
+        discoveryDebugSnapshot = nil
     }
 
     public func applyBETRRoomNDIDefaults() {

@@ -425,14 +425,46 @@ public struct NDIWizardDiscoveryServerRow: Sendable, Equatable, Identifiable {
     public let normalizedEndpoint: String
     public let host: String
     public let port: Int
-    public let validatedAddress: String?
-    public let listenerLifecycleState: String
-    public let lastStateChangeAt: Date?
-    public let degradedReason: String?
-    public let senderListenerAttached: Bool
+    public let senderListenerCreateSucceeded: Bool
     public let senderListenerConnected: Bool
-    public let receiverListenerAttached: Bool
+    public let senderListenerServerURL: String?
+    public let receiverListenerCreateSucceeded: Bool
     public let receiverListenerConnected: Bool
+    public let receiverListenerServerURL: String?
+
+    public init(
+        id: String,
+        configuredURL: String,
+        normalizedEndpoint: String? = nil,
+        host: String,
+        port: Int,
+        senderListenerCreateSucceeded: Bool = false,
+        senderListenerConnected: Bool,
+        senderListenerServerURL: String? = nil,
+        receiverListenerCreateSucceeded: Bool = false,
+        receiverListenerConnected: Bool,
+        receiverListenerServerURL: String? = nil
+    ) {
+        self.id = id
+        self.configuredURL = configuredURL
+        self.normalizedEndpoint = normalizedEndpoint ?? id
+        self.host = host
+        self.port = port
+        self.senderListenerCreateSucceeded = senderListenerCreateSucceeded
+        self.senderListenerConnected = senderListenerConnected
+        self.senderListenerServerURL = senderListenerServerURL
+        self.receiverListenerCreateSucceeded = receiverListenerCreateSucceeded
+        self.receiverListenerConnected = receiverListenerConnected
+        self.receiverListenerServerURL = receiverListenerServerURL
+    }
+}
+
+public struct NDIWizardDiscoveryServerDebugRow: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let normalizedEndpoint: String
+    public let validatedAddress: String?
+    public let listenerDebugState: String
+    public let lastStateChangeAt: Date?
     public let senderCreateFunctionAvailable: Bool
     public let receiverCreateFunctionAvailable: Bool
     public let senderCandidateAddresses: [String]
@@ -446,18 +478,10 @@ public struct NDIWizardDiscoveryServerRow: Sendable, Equatable, Identifiable {
 
     public init(
         id: String,
-        configuredURL: String,
-        normalizedEndpoint: String? = nil,
-        host: String,
-        port: Int,
+        normalizedEndpoint: String,
         validatedAddress: String? = nil,
-        listenerLifecycleState: String = "detached",
+        listenerDebugState: String = "detached",
         lastStateChangeAt: Date? = nil,
-        degradedReason: String? = nil,
-        senderListenerAttached: Bool,
-        senderListenerConnected: Bool,
-        receiverListenerAttached: Bool,
-        receiverListenerConnected: Bool,
         senderCreateFunctionAvailable: Bool = false,
         receiverCreateFunctionAvailable: Bool = false,
         senderCandidateAddresses: [String] = [],
@@ -470,18 +494,10 @@ public struct NDIWizardDiscoveryServerRow: Sendable, Equatable, Identifiable {
         receiverAttachFailureReason: String? = nil
     ) {
         self.id = id
-        self.configuredURL = configuredURL
-        self.normalizedEndpoint = normalizedEndpoint ?? id
-        self.host = host
-        self.port = port
+        self.normalizedEndpoint = normalizedEndpoint
         self.validatedAddress = validatedAddress
-        self.listenerLifecycleState = listenerLifecycleState
+        self.listenerDebugState = listenerDebugState
         self.lastStateChangeAt = lastStateChangeAt
-        self.degradedReason = degradedReason
-        self.senderListenerAttached = senderListenerAttached
-        self.senderListenerConnected = senderListenerConnected
-        self.receiverListenerAttached = receiverListenerAttached
-        self.receiverListenerConnected = receiverListenerConnected
         self.senderCreateFunctionAvailable = senderCreateFunctionAvailable
         self.receiverCreateFunctionAvailable = receiverCreateFunctionAvailable
         self.senderCandidateAddresses = senderCandidateAddresses
@@ -492,6 +508,34 @@ public struct NDIWizardDiscoveryServerRow: Sendable, Equatable, Identifiable {
         self.receiverLastAttemptedAddress = receiverLastAttemptedAddress
         self.senderAttachFailureReason = senderAttachFailureReason
         self.receiverAttachFailureReason = receiverAttachFailureReason
+    }
+}
+
+public struct NDIWizardDiscoveryDebugSnapshot: Sendable, Equatable {
+    public let generatedAt: Date
+    public let sdkBootstrapState: String
+    public let configDirectory: String?
+    public let configPath: String?
+    public let sdkLoadedPath: String?
+    public let sdkVersion: String?
+    public let discoveryServers: [NDIWizardDiscoveryServerDebugRow]
+
+    public init(
+        generatedAt: Date = Date(),
+        sdkBootstrapState: String = "uninitialized",
+        configDirectory: String? = nil,
+        configPath: String? = nil,
+        sdkLoadedPath: String? = nil,
+        sdkVersion: String? = nil,
+        discoveryServers: [NDIWizardDiscoveryServerDebugRow] = []
+    ) {
+        self.generatedAt = generatedAt
+        self.sdkBootstrapState = sdkBootstrapState
+        self.configDirectory = configDirectory
+        self.configPath = configPath
+        self.sdkLoadedPath = sdkLoadedPath
+        self.sdkVersion = sdkVersion
+        self.discoveryServers = discoveryServers
     }
 }
 
@@ -780,15 +824,14 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
     public let runtimeConfigMatchesCommittedProfile: Bool
     public let runtimeConfigMismatchReasons: [String]
     public let discoveryDetailState: NDIWizardDiscoveryState
+    public let sdkBootstrapState: String
     public let sdkVersion: String?
     public let sdkLoadedPath: String?
     public let finderSourceVisibilityCount: Int
     public let listenerSenderVisibilityCount: Int
     public let localSourceVisibilityCount: Int
     public let remoteSourceVisibilityCount: Int
-    public let senderListenerAttached: Bool
     public let senderListenerConnected: Bool
-    public let receiverListenerAttached: Bool
     public let receiverListenerConnected: Bool
     public let senderAdvertiserVisibilityCount: Int
     public let receiverAdvertiserVisibilityCount: Int
@@ -830,15 +873,14 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
         runtimeConfigMatchesCommittedProfile: Bool = false,
         runtimeConfigMismatchReasons: [String] = [],
         discoveryDetailState: NDIWizardDiscoveryState = .noDiscoveryConfigured,
+        sdkBootstrapState: String = "uninitialized",
         sdkVersion: String? = nil,
         sdkLoadedPath: String? = nil,
         finderSourceVisibilityCount: Int = 0,
         listenerSenderVisibilityCount: Int = 0,
         localSourceVisibilityCount: Int = 0,
         remoteSourceVisibilityCount: Int = 0,
-        senderListenerAttached: Bool = false,
         senderListenerConnected: Bool = false,
-        receiverListenerAttached: Bool = false,
         receiverListenerConnected: Bool = false,
         senderAdvertiserVisibilityCount: Int = 0,
         receiverAdvertiserVisibilityCount: Int = 0,
@@ -879,15 +921,14 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
         self.runtimeConfigMatchesCommittedProfile = runtimeConfigMatchesCommittedProfile
         self.runtimeConfigMismatchReasons = runtimeConfigMismatchReasons
         self.discoveryDetailState = discoveryDetailState
+        self.sdkBootstrapState = sdkBootstrapState
         self.sdkVersion = sdkVersion
         self.sdkLoadedPath = sdkLoadedPath
         self.finderSourceVisibilityCount = finderSourceVisibilityCount
         self.listenerSenderVisibilityCount = listenerSenderVisibilityCount
         self.localSourceVisibilityCount = localSourceVisibilityCount
         self.remoteSourceVisibilityCount = remoteSourceVisibilityCount
-        self.senderListenerAttached = senderListenerAttached
         self.senderListenerConnected = senderListenerConnected
-        self.receiverListenerAttached = receiverListenerAttached
         self.receiverListenerConnected = receiverListenerConnected
         self.senderAdvertiserVisibilityCount = senderAdvertiserVisibilityCount
         self.receiverAdvertiserVisibilityCount = receiverAdvertiserVisibilityCount

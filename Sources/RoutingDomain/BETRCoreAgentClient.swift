@@ -78,6 +78,7 @@ public actor BETRCoreAgentClient {
     private let operationTimeoutNanoseconds: UInt64
     private let workspaceSnapshotProvider: (@Sendable () async throws -> BETRCoreWorkspaceSnapshotResponse)?
     private let validationSnapshotProvider: (@Sendable () async throws -> BETRCoreValidationSnapshotResponse)?
+    private let discoveryDebugSnapshotProvider: (@Sendable () async throws -> BETRCoreDiscoveryDebugSnapshotResponse)?
     private let commandTransport: (@Sendable (BETRCoreCommandEnvelope) async throws -> BETRCoreCommandResponseEnvelope)?
     private let outputPreviewAttachmentProvider: (@Sendable (String, UInt64) async -> OutputPreviewAttachment?)?
     private let selectedPreviewAttachmentProvider: (@Sendable (String, UInt64) async -> OutputPreviewAttachment?)?
@@ -91,6 +92,7 @@ public actor BETRCoreAgentClient {
         operationTimeoutNanoseconds: UInt64 = 3_000_000_000,
         workspaceSnapshotProvider: (@Sendable () async throws -> BETRCoreWorkspaceSnapshotResponse)? = nil,
         validationSnapshotProvider: (@Sendable () async throws -> BETRCoreValidationSnapshotResponse)? = nil,
+        discoveryDebugSnapshotProvider: (@Sendable () async throws -> BETRCoreDiscoveryDebugSnapshotResponse)? = nil,
         commandTransport: (@Sendable (BETRCoreCommandEnvelope) async throws -> BETRCoreCommandResponseEnvelope)? = nil,
         outputPreviewAttachmentProvider: (@Sendable (String, UInt64) async -> OutputPreviewAttachment?)? = nil,
         selectedPreviewAttachmentProvider: (@Sendable (String, UInt64) async -> OutputPreviewAttachment?)? = nil,
@@ -100,6 +102,7 @@ public actor BETRCoreAgentClient {
         self.operationTimeoutNanoseconds = operationTimeoutNanoseconds
         self.workspaceSnapshotProvider = workspaceSnapshotProvider
         self.validationSnapshotProvider = validationSnapshotProvider
+        self.discoveryDebugSnapshotProvider = discoveryDebugSnapshotProvider
         self.commandTransport = commandTransport
         self.outputPreviewAttachmentProvider = outputPreviewAttachmentProvider
         self.selectedPreviewAttachmentProvider = selectedPreviewAttachmentProvider
@@ -119,6 +122,11 @@ public actor BETRCoreAgentClient {
         return makeWizardValidation(validation)
     }
 
+    public func currentDiscoveryDebugSnapshot() async -> NDIWizardDiscoveryDebugSnapshot? {
+        let snapshot = try? await loadDiscoveryDebugSnapshot()
+        return snapshot.map(Self.makeDiscoveryDebugSnapshot)
+    }
+
     public func refreshHostInterfaceInventory(rootDirectory: String) async throws -> FeatureShellState {
         let response = try await send(.refreshHostInterfaceInventory)
         guard case let .workspace(workspace) = response else {
@@ -134,15 +142,16 @@ public actor BETRCoreAgentClient {
     }
 
     public func waitForAgentAvailability(
-        maxAttempts: Int = 8,
-        retryIntervalNanoseconds: UInt64 = 250_000_000
+        maxAttempts: Int = 20,
+        retryIntervalNanoseconds: UInt64 = 500_000_000,
+        requestTimeoutNanoseconds: UInt64 = 20_000_000_000
     ) async throws -> BETRCoreWorkspaceSnapshotResponse {
         precondition(maxAttempts > 0, "maxAttempts must be positive")
 
         var lastError: Error?
         for attempt in 1...maxAttempts {
             do {
-                return try await loadWorkspaceSnapshot()
+                return try await loadWorkspaceSnapshot(timeoutNanoseconds: requestTimeoutNanoseconds)
             } catch {
                 lastError = error
                 invalidateConnection()
@@ -357,6 +366,11 @@ public actor BETRCoreAgentClient {
         return makeWizardValidation(validation)
     }
 
+    public func refreshDiscoveryDebugSnapshot() async throws -> NDIWizardDiscoveryDebugSnapshot {
+        let snapshot = try await loadDiscoveryDebugSnapshot()
+        return Self.makeDiscoveryDebugSnapshot(snapshot)
+    }
+
     public func fetchOutputPreviewAttachment(
         outputID: String,
         attachmentID: UInt64
@@ -449,14 +463,19 @@ public actor BETRCoreAgentClient {
         eventSubscriptionActive = false
     }
 
-    private func loadWorkspaceSnapshot() async throws -> BETRCoreWorkspaceSnapshotResponse {
+    private func loadWorkspaceSnapshot(
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> BETRCoreWorkspaceSnapshotResponse {
         if let workspaceSnapshotProvider {
-            return try await performTimedOperation("loading workspace state") {
+            return try await performTimedOperation(
+                "loading workspace state",
+                timeoutNanoseconds: timeoutNanoseconds
+            ) {
                 try await workspaceSnapshotProvider()
             }
         }
 
-        let response = try await send(.requestWorkspaceSnapshot)
+        let response = try await send(.requestWorkspaceSnapshot, timeoutNanosecondsOverride: timeoutNanoseconds)
         guard case let .workspace(snapshot) = response else {
             throw BETRCoreAgentClientError.malformedResponse
         }
@@ -472,6 +491,20 @@ public actor BETRCoreAgentClient {
 
         let response = try await send(.requestValidationSnapshot)
         guard case let .validation(snapshot) = response else {
+            throw BETRCoreAgentClientError.malformedResponse
+        }
+        return snapshot
+    }
+
+    private func loadDiscoveryDebugSnapshot() async throws -> BETRCoreDiscoveryDebugSnapshotResponse {
+        if let discoveryDebugSnapshotProvider {
+            return try await performTimedOperation("loading discovery debug state") {
+                try await discoveryDebugSnapshotProvider()
+            }
+        }
+
+        let response = try await send(.requestDiscoveryDebugSnapshot)
+        guard case let .discoveryDebug(snapshot) = response else {
             throw BETRCoreAgentClientError.malformedResponse
         }
         return snapshot
@@ -531,8 +564,11 @@ public actor BETRCoreAgentClient {
         }
     }
 
-    private func send(_ command: BETRCoreCommandEnvelope) async throws -> BETRCoreCommandResponseEnvelope {
-        let timeoutNanoseconds = commandTimeoutNanoseconds(for: command)
+    private func send(
+        _ command: BETRCoreCommandEnvelope,
+        timeoutNanosecondsOverride: UInt64? = nil
+    ) async throws -> BETRCoreCommandResponseEnvelope {
+        let timeoutNanoseconds = timeoutNanosecondsOverride ?? commandTimeoutNanoseconds(for: command)
 
         if let commandTransport {
             return try await performTimedOperation(
@@ -1056,15 +1092,14 @@ public actor BETRCoreAgentClient {
             runtimeConfigMatchesCommittedProfile: hostState.committedConfigMatchesProfile || expectedFingerprint == runtimeStatus?.configFingerprint,
             runtimeConfigMismatchReasons: hostState.committedConfigMismatchReasons,
             discoveryDetailState: Self.makeDiscoveryState(validation: validation),
+            sdkBootstrapState: runtimeStatus?.sdkBootstrapState.rawValue ?? NDISDKBootstrapState.uninitialized.rawValue,
             sdkVersion: runtimeStatus?.sdkVersion,
             sdkLoadedPath: runtimeStatus?.sdkLoadedPath,
             finderSourceVisibilityCount: discovery?.finderSourceCount ?? validation.directorySnapshot?.sources.count ?? 0,
             listenerSenderVisibilityCount: discovery?.listenerSourceCount ?? 0,
             localSourceVisibilityCount: discovery?.localSourceCount ?? 0,
             remoteSourceVisibilityCount: discovery?.remoteSourceCount ?? 0,
-            senderListenerAttached: discovery?.senderListenerAttached ?? false,
             senderListenerConnected: discovery?.senderListenerConnected ?? false,
-            receiverListenerAttached: discovery?.receiverListenerAttached ?? false,
             receiverListenerConnected: discovery?.receiverListenerConnected ?? false,
             senderAdvertiserVisibilityCount: discovery?.senderAdvertiserVisibilityCount ?? 0,
             receiverAdvertiserVisibilityCount: discovery?.receiverAdvertiserVisibilityCount ?? 0,
@@ -1204,24 +1239,48 @@ public actor BETRCoreAgentClient {
             normalizedEndpoint: status.normalizedEndpoint,
             host: status.host,
             port: status.port,
-            validatedAddress: status.validatedAddress,
-            listenerLifecycleState: status.listenerLifecycleState.rawValue,
-            lastStateChangeAt: status.lastStateChangeAt,
-            degradedReason: status.degradedReason?.rawValue,
-            senderListenerAttached: status.senderListenerAttached,
+            senderListenerCreateSucceeded: status.senderListenerCreateSucceeded,
             senderListenerConnected: status.senderListenerConnected,
-            receiverListenerAttached: status.receiverListenerAttached,
+            senderListenerServerURL: status.senderListenerServerURL,
+            receiverListenerCreateSucceeded: status.receiverListenerCreateSucceeded,
             receiverListenerConnected: status.receiverListenerConnected,
-            senderCreateFunctionAvailable: status.senderAttachDiagnostics.createFunctionAvailable,
-            receiverCreateFunctionAvailable: status.receiverAttachDiagnostics.createFunctionAvailable,
-            senderCandidateAddresses: status.senderAttachDiagnostics.candidateAddresses,
-            receiverCandidateAddresses: status.receiverAttachDiagnostics.candidateAddresses,
-            senderAttachAttemptCount: status.senderAttachDiagnostics.attachAttemptCount,
-            receiverAttachAttemptCount: status.receiverAttachDiagnostics.attachAttemptCount,
-            senderLastAttemptedAddress: status.senderAttachDiagnostics.lastAttemptedAddress,
-            receiverLastAttemptedAddress: status.receiverAttachDiagnostics.lastAttemptedAddress,
-            senderAttachFailureReason: status.senderAttachDiagnostics.failureReason?.rawValue,
-            receiverAttachFailureReason: status.receiverAttachDiagnostics.failureReason?.rawValue
+            receiverListenerServerURL: status.receiverListenerServerURL
+        )
+    }
+
+    private static func makeDiscoveryServerDebugRow(
+        from status: NDIDiscoveryServerDebugStatus
+    ) -> NDIWizardDiscoveryServerDebugRow {
+        NDIWizardDiscoveryServerDebugRow(
+            id: status.id,
+            normalizedEndpoint: status.normalizedEndpoint,
+            validatedAddress: status.validatedAddress,
+            listenerDebugState: status.listenerDebugState.rawValue,
+            lastStateChangeAt: status.lastStateChangeAt,
+            senderCreateFunctionAvailable: status.senderCreateFunctionAvailable,
+            receiverCreateFunctionAvailable: status.receiverCreateFunctionAvailable,
+            senderCandidateAddresses: status.senderCandidateAddresses,
+            receiverCandidateAddresses: status.receiverCandidateAddresses,
+            senderAttachAttemptCount: status.senderAttachAttemptCount,
+            receiverAttachAttemptCount: status.receiverAttachAttemptCount,
+            senderLastAttemptedAddress: status.senderLastAttemptedAddress,
+            receiverLastAttemptedAddress: status.receiverLastAttemptedAddress,
+            senderAttachFailureReason: status.senderAttachFailureReason?.rawValue,
+            receiverAttachFailureReason: status.receiverAttachFailureReason?.rawValue
+        )
+    }
+
+    private static func makeDiscoveryDebugSnapshot(
+        _ snapshot: BETRCoreDiscoveryDebugSnapshotResponse
+    ) -> NDIWizardDiscoveryDebugSnapshot {
+        NDIWizardDiscoveryDebugSnapshot(
+            generatedAt: snapshot.generatedAt,
+            sdkBootstrapState: snapshot.sdkBootstrapState.rawValue,
+            configDirectory: snapshot.configDirectory,
+            configPath: snapshot.configPath,
+            sdkLoadedPath: snapshot.sdkLoadedPath,
+            sdkVersion: snapshot.sdkVersion,
+            discoveryServers: snapshot.discoveryServers.map(Self.makeDiscoveryServerDebugRow)
         )
     }
 
@@ -1308,36 +1367,33 @@ public actor BETRCoreAgentClient {
         let discoveryServers = validation.runtimeStatus?.discoveryServers ?? []
         let discovery = validation.directorySnapshot?.discovery
         let remoteVisibilityCount = discovery?.remoteSourceCount ?? 0
-        let listenerVisibilityCount = discovery?.listenerSourceCount ?? 0
-        let hasVisibleDiscovery = remoteVisibilityCount > 0 || listenerVisibilityCount > 0
+        let hasVisibleDiscovery = remoteVisibilityCount > 0
+        let sdkBootstrapState = validation.runtimeStatus?.sdkBootstrapState ?? .uninitialized
         let hasConnectedListener = discoveryServers.contains {
             $0.senderListenerConnected || $0.receiverListenerConnected
         }
-        let hasAttachedListener = discoveryServers.contains {
-            $0.senderListenerAttached || $0.receiverListenerAttached
-        }
         let hasCreateFailure = discoveryServers.contains {
-            $0.listenerLifecycleState == .createFailed || $0.degradedReason != nil
+            $0.senderListenerCreateSucceeded == false || $0.receiverListenerCreateSucceeded == false
         }
 
         guard configuredDiscoveryServers.isEmpty == false else {
             return .noDiscoveryConfigured
         }
 
+        if sdkBootstrapState == .failed {
+            return .error
+        }
+
         if hasVisibleDiscovery {
             return .visible
         }
 
-        if hasConnectedListener {
-            return .connected
-        }
-
-        if hasAttachedListener {
-            return .waiting
-        }
-
         if hasCreateFailure {
             return .error
+        }
+
+        if hasConnectedListener {
+            return .connected
         }
 
         return .waiting
