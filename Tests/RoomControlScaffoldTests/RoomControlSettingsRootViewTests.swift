@@ -24,6 +24,17 @@ final class RoomControlSettingsRootViewTests: XCTestCase {
         )
     }
 
+    func testRuntimeDiscoveryServerSummaryShowsNotConnectedWhenRuntimeServersExistButDraftIsEmpty() {
+        XCTAssertEqual(
+            RoomControlSettingsRootView.runtimeDiscoveryServerSummary(
+                activeDiscoveryServerURL: nil,
+                configuredDiscoveryServerText: "",
+                runtimeDiscoveryServersCount: 1
+            ),
+            "Not connected"
+        )
+    }
+
     func testRuntimeDiscoveryServerSummaryPrefersActualSDKServerURL() {
         XCTAssertEqual(
             RoomControlSettingsRootView.runtimeDiscoveryServerSummary(
