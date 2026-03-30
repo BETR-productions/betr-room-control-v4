@@ -744,11 +744,12 @@ public final class RoomControlWorkspaceStore: ObservableObject {
     }
 
     private func applyShellState(_ state: FeatureShellState) async {
-        shellState = state
-        hostInterfaceInventory = state.workspace.hostInterfaceInventory ?? BETRCoreHostInterfaceInventorySnapshot()
+        let mergedState = await coreAgentClient.mergeConfidencePreviewState(from: shellState, into: state)
+        shellState = mergedState
+        hostInterfaceInventory = mergedState.workspace.hostInterfaceInventory ?? BETRCoreHostInterfaceInventorySnapshot()
         refreshHostInterfaces()
-        capacitySnapshot = state.capacity ?? RoomControlCapacitySnapshot()
-        let keeping = Set(state.workspace.cards.map(\.id))
+        capacitySnapshot = mergedState.capacity ?? RoomControlCapacitySnapshot()
+        let keeping = Set(mergedState.workspace.cards.map(\.id))
         programTileRegistry.prune(keeping: keeping)
         previewTileRegistry.prune(keeping: keeping)
         await syncProducerRuntimeSnapshots()
@@ -1070,10 +1071,12 @@ public final class RoomControlWorkspaceStore: ObservableObject {
             programTileRegistry.applyAdvance(advance)
         case let .selectedPreviewAdvance(advance):
             previewTileRegistry.applyAdvance(advance)
+            shellState = await coreAgentClient.applySelectedPreviewAdvance(advance, to: shellState)
         case let .outputPreviewDetach(outputID):
             programTileRegistry.applyDetach(outputID: outputID)
         case let .selectedPreviewDetach(outputID):
             previewTileRegistry.applyDetach(outputID: outputID)
+            shellState = await coreAgentClient.applySelectedPreviewDetach(outputID: outputID, to: shellState)
         case let .hostValidation(snapshot):
             hostValidation = await coreAgentClient.makeWizardValidationSnapshot(from: snapshot)
             lastStatusMessage = "Updated validation state from BETRCoreAgent."

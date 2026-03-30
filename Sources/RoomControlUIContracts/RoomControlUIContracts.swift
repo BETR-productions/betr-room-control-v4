@@ -63,17 +63,29 @@ public struct OutputConfidencePreviewModel: Sendable, Equatable {
     public let sourceName: String?
     public let mode: OutputConfidencePreviewMode
     public let isReady: Bool
+    public let previewState: OutputPreviewState
+    public let audioPresenceState: OutputAudioPresenceState
+    public let leftLevel: Double
+    public let rightLevel: Double
 
     public init(
         sourceID: String? = nil,
         sourceName: String? = nil,
         mode: OutputConfidencePreviewMode = .armedPreview,
-        isReady: Bool = false
+        isReady: Bool = false,
+        previewState: OutputPreviewState = .unavailable,
+        audioPresenceState: OutputAudioPresenceState = .silent,
+        leftLevel: Double = 0,
+        rightLevel: Double = 0
     ) {
         self.sourceID = sourceID
         self.sourceName = sourceName
         self.mode = mode
         self.isReady = isReady
+        self.previewState = previewState
+        self.audioPresenceState = audioPresenceState
+        self.leftLevel = leftLevel
+        self.rightLevel = rightLevel
     }
 }
 
