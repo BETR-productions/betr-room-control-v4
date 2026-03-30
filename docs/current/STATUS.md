@@ -80,15 +80,15 @@
   - that installer package also preinstalls the root `BETRNetworkHelper` daemon in `/Library/PrivilegedHelperTools` and `/Library/LaunchDaemons` through a `postinstall` script
   - future in-app updates can continue to use the normal bridge/date-line updater path, and the app only needs to prompt again if the bundled helper changes
   - this Mac does not currently have the matching `Developer ID Installer` certificate in Keychain, so signed/notarized PKG publication is blocked until that cert is added
-- `0.9.8.57` is now the current published bridge build for the settings/NIC recovery hotfix:
-  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.9.8.57`
+- `0.9.8.89` is now the current published bridge build for the Discovery-7E control-plane purity cleanup:
+  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.9.8.89`
   - assets:
-    - `BETR-Room-Control-v0.9.8.57.zip`
-    - `BETR-Room-Control-v0.9.8.57.dmg`
+    - `BETR-Room-Control-v0.9.8.89.zip`
+    - `BETR-Room-Control-v0.9.8.89.dmg`
   - packaged validation passed with `embeddedSMAppService`, event observation, and preview transport
   - signed/notarized PKG publication is still blocked locally by the missing `Developer ID Installer` certificate
-  - the settings wizard now uses one clear show-NIC picker with a compact selected/live summary instead of the duplicate picker-plus-card flow
-  - `Start Over` now finishes with a real `Restart BETR Room Control now?` prompt so operators can relaunch cleanly after network reset
+  - the Discovery-7 bootstrap/runtime cleanup now keeps the helper-owned control-plane reads pure after startup and leaves the shared host snapshot free of dead discovery-listener flags
+  - the operator-facing runtime/config discovery wording remains separated: runtime cards carry SDK truth while config cards stay draft-only
 - The bridge hotfix now upgrades cleanly from the installed public `0.9.5.2`, and a staged `.3.23.2` (`0.3.23.2`) candidate now validates cleanly over the bridge when both builds carry ordered update sequences.
 - Discovery Server operator UX now follows the same precedence as the core runtime:
   - `WAITING`, `CONNECTED`, and visible-source `PASS` state are driven from SDK listener lifecycle and actual discovery visibility only
@@ -130,6 +130,6 @@
   - `0.9.8.50` is a bad bridge build and should not be reused
   - `0.9.8.53` is superseded because it could still replay proof-mode shutdown state across restarts
   - `0.9.8.56` is superseded because the settings NIC flow and restart recovery still drifted from the operator contract
-  - the public bridge release is now `0.9.8.57`
+  - the public bridge release is now `0.9.8.89`
   - the next date-line release may be published as `.3.23.2` and canonicalized to `0.3.23.2`
   - the bridge release is what lets future date-line releases advance through the updater without returning to raw dotted version math
