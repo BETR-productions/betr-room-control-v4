@@ -302,17 +302,11 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
             guard runtimeDiscoveryServers.isEmpty == false || remoteSourceVisibilityCount > 0 else {
                 return nil
             }
-            let listenerAttached = runtimeDiscoveryServers.contains {
-                $0.senderListenerCreateSucceeded || $0.receiverListenerCreateSucceeded
-            }
-            let listenerConnected = runtimeDiscoveryServers.contains { $0.senderListenerConnected || $0.receiverListenerConnected }
             return NDIDirectoryRuntimeSnapshot(
                 presence: NDISourcePresenceSnapshot(
                     descriptors: [],
                     discoveryServers: runtimeDiscoveryServers,
-                    activeDiscoveryServerURL: activeDiscoveryServerURL,
-                    listenerAttached: listenerAttached,
-                    listenerConnected: listenerConnected
+                    activeDiscoveryServerURL: activeDiscoveryServerURL
                 ),
                 catalog: NDISourceCatalogSnapshot(
                     sources: [],

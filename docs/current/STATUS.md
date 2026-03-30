@@ -101,11 +101,12 @@
   - listeners created but not yet connected render as neutral `CHECK` / `WAITING`, not failure and not synthetic warmup
   - `activeServer` only comes from the SDK-reported listener server URL, never from configured-endpoint fallback
   - remote source visibility is still current-process truth only; the app does not invent sticky discovery health across restarts
+  - the default runtime card now distinguishes `mDNS only` from `Not connected` so a configured Discovery Server that is still waiting is not mislabeled as mDNS-only
 - The Discovery-7 bootstrap audit and app-boundary notes now live in [DISCOVERY_BOOTSTRAP_AUDIT.md](./DISCOVERY_BOOTSTRAP_AUDIT.md).
 - The Discovery-7 SDK alignment audit now records the current app-boundary verdict as `ALIGNED ENOUGH TO CONTINUE`:
   - startup/readiness behavior now respects helper bootstrap completion
   - no app-side configured-endpoint fallback remains in connected-server truth
-  - remaining risk is discovery diagnostics still sitting close to operator-facing row presentation
+  - default operator copy now distinguishes configured-but-waiting Discovery Server state from mDNS-only mode
   - see [DISCOVERY_SDK_ALIGNMENT_AUDIT.md](./DISCOVERY_SDK_ALIGNMENT_AUDIT.md)
 - `spctl -a -vv` now accepts the built app bundle as `Notarized Developer ID`.
 - The left rail now has another operator-parity recovery slice staged on the governed shipping branch:

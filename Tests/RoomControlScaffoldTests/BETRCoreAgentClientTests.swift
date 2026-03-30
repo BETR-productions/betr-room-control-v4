@@ -1614,12 +1614,6 @@ final class BETRCoreAgentClientTests: XCTestCase {
             connectedServerURLs: activeDiscoveryServerURL.map { [$0] } ?? [],
             selectedInterfaceID: "en7"
         )
-        let listenerAttached = runtimeStatus.discoveryServers.contains {
-            $0.senderListenerCreateSucceeded || $0.receiverListenerCreateSucceeded
-        }
-        let listenerConnected = runtimeStatus.discoveryServers.contains {
-            $0.senderListenerConnected || $0.receiverListenerConnected
-        }
 
         let presence = NDISourcePresenceSnapshot(
             descriptors: [presenter, slideshow],
@@ -1628,9 +1622,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
                 slideshow.id: .finder,
             ],
             discoveryServers: runtimeStatus.discoveryServers,
-            activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL,
-            listenerAttached: listenerAttached,
-            listenerConnected: listenerConnected
+            activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL
         )
 
         let directorySnapshot = NDIDirectoryRuntimeSnapshot(
@@ -1652,18 +1644,14 @@ final class BETRCoreAgentClientTests: XCTestCase {
                     provenance: .finder,
                     firstSeenAt: Date(),
                     lastSeenAt: Date(),
-                    activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL,
-                    listenerAttached: listenerAttached,
-                    listenerConnected: listenerConnected
+                    activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL
                 ),
                 NDIDirectorySourceRecord(
                     descriptor: slideshow,
                     provenance: .finder,
                     firstSeenAt: Date(),
                     lastSeenAt: Date(),
-                    activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL,
-                    listenerAttached: listenerAttached,
-                    listenerConnected: listenerConnected
+                    activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL
                 ),
             ],
             discovery: NDIDiscoverySnapshot(

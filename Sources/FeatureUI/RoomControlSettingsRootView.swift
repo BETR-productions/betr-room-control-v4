@@ -111,7 +111,7 @@ struct RoomControlSettingsRootView: View {
                         keyValueRow("Committed NIC", store.hostValidation.committedInterfaceBSDName ?? "Not applied yet")
                         keyValueRow("Runtime NIC", store.hostValidation.resolvedRuntimeInterfaceBSDName ?? "Not reported")
                         keyValueRow("Route Owner", store.hostValidation.multicastRouteOwnerBSDName ?? "Not reported")
-                        keyValueRow("Discovery Server", store.hostValidation.activeDiscoveryServerURL ?? "mDNS only")
+                        keyValueRow("Discovery Server", runtimeDiscoveryServerSummary)
 
                         if let lastStatusMessage = store.lastStatusMessage {
                             Text(lastStatusMessage)
@@ -158,6 +158,29 @@ struct RoomControlSettingsRootView: View {
                 }
             }
         }
+    }
+
+    private var runtimeDiscoveryServerSummary: String {
+        Self.runtimeDiscoveryServerSummary(
+            activeDiscoveryServerURL: store.hostValidation.activeDiscoveryServerURL,
+            configuredDiscoveryServerText: store.hostDraft.discoveryServersText,
+            runtimeDiscoveryServersCount: store.hostValidation.discoveryServers.count
+        )
+    }
+
+    static func runtimeDiscoveryServerSummary(
+        activeDiscoveryServerURL: String?,
+        configuredDiscoveryServerText: String,
+        runtimeDiscoveryServersCount: Int
+    ) -> String {
+        if let activeDiscoveryServerURL {
+            return activeDiscoveryServerURL
+        }
+
+        let draftHasDiscoveryServer = configuredDiscoveryServerText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
+        return (draftHasDiscoveryServer || runtimeDiscoveryServersCount > 0) ? "Not connected" : "mDNS only"
     }
 
     private var logsTab: some View {
