@@ -760,7 +760,8 @@ public actor BETRCoreAgentClient {
             programSourceIsWarm: programSourceIsWarm,
             previewSourceID: card.previewSourceID,
             previewSourceName: card.previewSourceName,
-            previewSourceIsWarm: previewSourceIsWarm
+            previewSourceIsWarm: previewSourceIsWarm,
+            existing: card.confidencePreview
         )
         card.statusPills = Self.makeStatusPills(
             livePreviewState: card.liveTile.previewState,
@@ -782,6 +783,99 @@ public actor BETRCoreAgentClient {
             migrationSummary: shellState.migrationSummary,
             capacity: shellState.capacity
         )
+    }
+
+    public func applySelectedPreviewAdvance(
+        _ advance: OutputPreviewAdvance,
+        to shellState: FeatureShellState?
+    ) -> FeatureShellState? {
+        guard var shellState,
+              let index = shellState.workspace.cards.firstIndex(where: { $0.id == advance.snapshot.outputID }) else {
+            return shellState
+        }
+
+        var card = shellState.workspace.cards[index]
+        guard let confidencePreview = card.confidencePreview else {
+            return shellState
+        }
+
+        guard advance.snapshot.sourceID == nil || advance.snapshot.sourceID == confidencePreview.sourceID else {
+            return shellState
+        }
+
+        card.confidencePreview = OutputConfidencePreviewModel(
+            sourceID: confidencePreview.sourceID,
+            sourceName: confidencePreview.sourceName,
+            mode: confidencePreview.mode,
+            isReady: confidencePreview.isReady,
+            previewState: advance.snapshot.fallbackActive
+                ? .fallback
+                : advance.snapshot.previewState.roomControlPreviewState,
+            audioPresenceState: advance.snapshot.audioPresenceState.roomControlAudioPresenceState,
+            leftLevel: advance.snapshot.leftLevel,
+            rightLevel: advance.snapshot.rightLevel
+        )
+        shellState.workspace.cards[index] = card
+        return shellState
+    }
+
+    public func applySelectedPreviewDetach(
+        outputID: String,
+        to shellState: FeatureShellState?
+    ) -> FeatureShellState? {
+        guard var shellState,
+              let index = shellState.workspace.cards.firstIndex(where: { $0.id == outputID }),
+              let confidencePreview = shellState.workspace.cards[index].confidencePreview else {
+            return shellState
+        }
+
+        var card = shellState.workspace.cards[index]
+        card.confidencePreview = OutputConfidencePreviewModel(
+            sourceID: confidencePreview.sourceID,
+            sourceName: confidencePreview.sourceName,
+            mode: confidencePreview.mode,
+            isReady: confidencePreview.isReady,
+            previewState: .unavailable,
+            audioPresenceState: .silent,
+            leftLevel: 0,
+            rightLevel: 0
+        )
+        shellState.workspace.cards[index] = card
+        return shellState
+    }
+
+    public func mergeConfidencePreviewState(
+        from previous: FeatureShellState?,
+        into state: FeatureShellState
+    ) -> FeatureShellState {
+        guard let previous else { return state }
+        let previousByOutputID = Dictionary(
+            uniqueKeysWithValues: previous.workspace.cards.map { ($0.id, $0.confidencePreview) }
+        )
+
+        var nextState = state
+        nextState.workspace.cards = state.workspace.cards.map { card in
+            guard let confidencePreview = card.confidencePreview,
+                  let previousPreview = previousByOutputID[card.id] ?? nil,
+                  previousPreview.sourceID == confidencePreview.sourceID,
+                  previousPreview.mode == confidencePreview.mode else {
+                return card
+            }
+
+            var mergedCard = card
+            mergedCard.confidencePreview = OutputConfidencePreviewModel(
+                sourceID: confidencePreview.sourceID,
+                sourceName: confidencePreview.sourceName,
+                mode: confidencePreview.mode,
+                isReady: confidencePreview.isReady,
+                previewState: previousPreview.previewState,
+                audioPresenceState: previousPreview.audioPresenceState,
+                leftLevel: previousPreview.leftLevel,
+                rightLevel: previousPreview.rightLevel
+            )
+            return mergedCard
+        }
+        return nextState
     }
 
     private func makeShellState(
@@ -1120,27 +1214,50 @@ public actor BETRCoreAgentClient {
         programSourceIsWarm: Bool,
         previewSourceID: String?,
         previewSourceName: String?,
-        previewSourceIsWarm: Bool
+        previewSourceIsWarm: Bool,
+        existing: OutputConfidencePreviewModel? = nil
     ) -> OutputConfidencePreviewModel? {
         if let programSourceID, programSourceID != liveSourceID {
-            return OutputConfidencePreviewModel(
+            return makeConfidencePreviewModel(
                 sourceID: programSourceID,
                 sourceName: programSourceName,
                 mode: .pendingProgram,
-                isReady: programSourceIsWarm
+                isReady: programSourceIsWarm,
+                existing: existing
             )
         }
 
         if let previewSourceID {
-            return OutputConfidencePreviewModel(
+            return makeConfidencePreviewModel(
                 sourceID: previewSourceID,
                 sourceName: previewSourceName,
                 mode: .armedPreview,
-                isReady: previewSourceIsWarm
+                isReady: previewSourceIsWarm,
+                existing: existing
             )
         }
 
         return nil
+    }
+
+    private static func makeConfidencePreviewModel(
+        sourceID: String,
+        sourceName: String?,
+        mode: OutputConfidencePreviewMode,
+        isReady: Bool,
+        existing: OutputConfidencePreviewModel?
+    ) -> OutputConfidencePreviewModel {
+        let preserved = existing?.sourceID == sourceID && existing?.mode == mode ? existing : nil
+        return OutputConfidencePreviewModel(
+            sourceID: sourceID,
+            sourceName: sourceName,
+            mode: mode,
+            isReady: isReady,
+            previewState: preserved?.previewState ?? .unavailable,
+            audioPresenceState: preserved?.audioPresenceState ?? .silent,
+            leftLevel: preserved?.leftLevel ?? 0,
+            rightLevel: preserved?.rightLevel ?? 0
+        )
     }
 
     private static func makeProofAudioPresenceState(

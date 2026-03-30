@@ -1736,16 +1736,7 @@ private struct OutputPreviewTile: View {
     }
 
     private var confidencePreviewState: OutputPreviewState {
-        guard let confidencePreview = card.confidencePreview else {
-            return .unavailable
-        }
-
-        switch confidencePreview.mode {
-        case .pendingProgram:
-            return card.liveTile.previewState
-        case .armedPreview:
-            return store.previewRenderFeed(for: card.id).hasSurface() ? .live : .unavailable
-        }
+        card.confidencePreview?.previewState ?? .unavailable
     }
 
     private var confidencePreviewLabel: String {
@@ -1769,9 +1760,6 @@ private struct OutputPreviewTile: View {
     }
 
     private var confidencePreviewRenderFeed: OutputTileRenderFeed {
-        if card.confidencePreview?.mode == .pendingProgram {
-            return store.programRenderFeed(for: card.id)
-        }
         return store.previewRenderFeed(for: card.id)
     }
 
@@ -1784,9 +1772,9 @@ private struct OutputPreviewTile: View {
                 surfaceLabel: confidencePreviewLabel,
                 standbyLabel: confidencePreviewStandbyLabel,
                 showsAudioMeters: true,
-                audioMuted: card.isAudioMuted,
-                leftLevel: card.liveTile.leftLevel,
-                rightLevel: card.liveTile.rightLevel,
+                audioMuted: false,
+                leftLevel: card.confidencePreview?.leftLevel ?? 0,
+                rightLevel: card.confidencePreview?.rightLevel ?? 0,
                 inset: nil
             )
             .frame(width: 126, height: 72)
@@ -2109,7 +2097,7 @@ private struct OutputPreviewTile: View {
             return "OK"
         }
         if telemetry.gateReasons.contains("audio") {
-            return telemetry.audioRequired ? "NO AUD" : "VID"
+            return telemetry.audioRequired ? "AUD?" : "VID"
         }
         if telemetry.gateReasons.contains("skew") {
             return "SKEW"
