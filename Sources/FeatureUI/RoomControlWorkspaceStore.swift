@@ -26,19 +26,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         case immediate
     }
 
-    public struct DiscoveryWarmupState: Sendable, Equatable {
-        public let agentInstanceID: String
-        public let agentStartedAt: Date
-        public let restartIntent: RoomControlCoreAgentRestartIntent
-        public let expiresAt: Date
-
-        public var isActive: Bool {
-            Date() < expiresAt
-        }
-    }
-
-    private static let discoveryWarmupDuration: TimeInterval = 15
-
     @Published public private(set) var shellState: FeatureShellState?
     @Published public private(set) var availableDisplays: [String] = []
     @Published public private(set) var presentationState = PresentationXPCState()
@@ -51,7 +38,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
     @Published public private(set) var timerRuntimeSnapshot = TimerRuntimeSnapshot()
     @Published public private(set) var clipPlayerRuntimeSnapshot = ClipPlayerRuntimeSnapshot()
     @Published public private(set) var capacitySnapshot = RoomControlCapacitySnapshot()
-    @Published public private(set) var discoveryWarmupState: DiscoveryWarmupState?
     @Published public private(set) var lastStatusMessage: String?
     @Published public var lastErrorMessage: String?
     @Published public private(set) var startupBlockerMessage: String?
@@ -90,7 +76,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
     }
     private var eventObservationTask: Task<Void, Never>?
     private var diagnosticLogRefreshTask: Task<Void, Never>?
-    private var discoveryWarmupExpiryTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
     private var restoringPersistedState = false
@@ -130,10 +115,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         )
     }
 
-    public var isDiscoveryWarmupActive: Bool {
-        discoveryWarmupState?.isActive ?? false
-    }
-
     public var effectiveDiscoverySummaryMessage: String {
         if discoveryAggregateStatus.usesMDNSOnly {
             return "mDNS-only discovery is active. Add a Discovery Server only when the room network requires it."
@@ -142,19 +123,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
            discoveryAggregateStatus.healthyCount > 0,
            discoveryAggregateStatus.healthyCount < discoveryAggregateStatus.totalCount {
             return "Discovery is usable through \(discoveryAggregateStatus.healthyCount) of \(discoveryAggregateStatus.totalCount) configured servers, but one or more still need attention."
-        }
-        if isDiscoveryWarmupActive {
-            return "BETR restarted on the committed host profile. Discovery listeners are warming up on the new agent instance. Watch the server row and source catalog before applying again."
-        }
-        if discoveryAggregateStatus.totalCount > 0,
-           discoveryAggregateStatus.healthyCount == 0,
-           hasDiscoveryListenerBringUp {
-            return "Discovery listeners are attached and still warming up. Watch the server row and source catalog before treating this as a server failure."
-        }
-        if discoveryAggregateStatus.totalCount > 0,
-           discoveryAggregateStatus.healthyCount == 0,
-           hostValidation.discoveryDetailState != .noDiscoveryConfigured {
-            return "No configured Discovery Server is healthy yet. Check the server rows below for the exact endpoint that is failing."
         }
         return hostValidation.discoverySummary
     }
@@ -168,14 +136,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
            discoveryAggregateStatus.healthyCount < discoveryAggregateStatus.totalCount {
             return "Discovery is up through at least one server. Keep working, but fix the degraded server row before you trust redundancy."
         }
-        if isDiscoveryWarmupActive {
-            return "Do not apply again yet. Let the listeners finish bring-up and watch the server row and source catalog on the committed NIC."
-        }
-        if discoveryAggregateStatus.totalCount > 0,
-           discoveryAggregateStatus.healthyCount == 0,
-           hasDiscoveryListenerBringUp {
-            return "The BETR host profile is already in place. Let the listeners finish bring-up and watch the server row and source catalog before applying again."
-        }
         return hostValidation.discoveryNextAction
     }
 
@@ -188,10 +148,8 @@ public final class RoomControlWorkspaceStore: ObservableObject {
             self.lastStatusMessage = nil
             await self.restorePersistedStateIfNeeded()
             var bootstrapSucceeded = false
-            var bootstrapStatus: RoomControlCoreAgentBootstrapStatus?
             do {
                 let status = try await self.coreAgentBootstrapper.ensureStarted()
-                bootstrapStatus = status
                 _ = try await self.coreAgentClient.waitForAgentAvailability()
                 self.lastStatusMessage = status.note
                 bootstrapSucceeded = true
@@ -222,8 +180,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
             await self.syncManagedLocalProducersFromDrafts()
             await self.reloadShellStateFromCore()
             self.hostValidation = await self.coreAgentClient.currentValidationSnapshot()
-            self.applyBootstrapDiscoveryWarmupIfNeeded(bootstrapStatus)
-            self.reconcileDiscoveryWarmup()
             self.refreshDiagnosticLogs()
             if bootstrapSucceeded {
                 self.beginCoreEventObservation()
@@ -237,7 +193,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         eventObservationTask = nil
         diagnosticLogRefreshTask?.cancel()
         diagnosticLogRefreshTask = nil
-        clearDiscoveryWarmup()
         persistenceTask?.cancel()
         persistenceTask = nil
         Task { [coreAgentClient] in
@@ -387,12 +342,10 @@ public final class RoomControlWorkspaceStore: ObservableObject {
                 try await coreAgentClient.resetNDIHostEnvironment()
             },
             onSuccess: {
-                self.clearDiscoveryWarmup()
                 await self.coreAgentBootstrapper.markManagedAgentRestartRequired(reason: .hostReset)
                 self.applyBETRRoomNDIDefaults()
                 self.hostWizardProgressState.currentStep = .interface
                 self.hostValidation = await self.coreAgentClient.currentValidationSnapshot()
-                self.reconcileDiscoveryWarmup()
                 self.lastStatusMessage = "Restored normal macOS networking, cleared BETR's saved host ownership, and reset the wizard to Step 1. BETR will not reapply network control until you use Apply + Restart again."
                 self.pendingRestartPromptContext = .startOver
             }
@@ -431,7 +384,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
                 )
             },
             onSuccess: {
-                self.clearDiscoveryWarmup()
                 do {
                     self.hostValidation = try await self.coreAgentClient.refreshValidation()
                 } catch {
@@ -447,7 +399,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
                 } else {
                     self.pendingRestartPromptContext = nil
                 }
-                self.reconcileDiscoveryWarmup()
                 self.completeHostWizardStep(.apply)
                 self.hostWizardProgressState.currentStep = .apply
                 if restartBehavior == .immediate {
@@ -467,7 +418,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
             do {
                 self.hostValidation = try await self.coreAgentClient.refreshValidation()
                 await self.reloadShellStateFromCore()
-                self.reconcileDiscoveryWarmup()
                 self.refreshDiagnosticLogs()
                 self.completeHostWizardStep(.validation)
                 self.lastStatusMessage = "Refreshed validation from BETRCoreAgent."
@@ -779,101 +729,12 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         shellState = state
         hostInterfaceInventory = state.workspace.hostInterfaceInventory ?? BETRCoreHostInterfaceInventorySnapshot()
         refreshHostInterfaces()
-        reconcileDiscoveryWarmup()
         capacitySnapshot = state.capacity ?? RoomControlCapacitySnapshot()
         let keeping = Set(state.workspace.cards.map(\.id))
         programTileRegistry.prune(keeping: keeping)
         previewTileRegistry.prune(keeping: keeping)
         await syncProducerRuntimeSnapshots()
         refreshDiagnosticLogs()
-    }
-
-    private var hasDiscoveryListenerBringUp: Bool {
-        if hostValidation.discoveryDetailState == .listenerAttachedNotConnected {
-            return true
-        }
-
-        return hostValidation.discoveryServers.contains { row in
-            row.listenerLifecycleState == "attaching"
-                || row.listenerLifecycleState == "attached_waiting"
-                || (row.validatedAddress != nil
-                    && row.senderListenerConnected == false
-                    && row.receiverListenerConnected == false)
-        }
-    }
-
-    private func currentAgentIdentity() -> (id: String, startedAt: Date)? {
-        if hostValidation.agentInstanceID.isEmpty == false {
-            return (hostValidation.agentInstanceID, hostValidation.agentStartedAt)
-        }
-        guard let shellState, shellState.workspace.agentInstanceID.isEmpty == false else {
-            return nil
-        }
-        return (shellState.workspace.agentInstanceID, shellState.workspace.agentStartedAt)
-    }
-
-    private func applyBootstrapDiscoveryWarmupIfNeeded(
-        _ bootstrapStatus: RoomControlCoreAgentBootstrapStatus?
-    ) {
-        guard let restartIntent = bootstrapStatus?.consumedRestartIntent,
-              let agentIdentity = currentAgentIdentity(),
-              hostValidation.remoteSourceVisibilityCount == 0 else {
-            return
-        }
-
-        let warmupAnchor = agentIdentity.startedAt > restartIntent.requestedAt
-            ? agentIdentity.startedAt
-            : restartIntent.requestedAt
-
-        discoveryWarmupState = DiscoveryWarmupState(
-            agentInstanceID: agentIdentity.id,
-            agentStartedAt: agentIdentity.startedAt,
-            restartIntent: restartIntent,
-            expiresAt: warmupAnchor.addingTimeInterval(Self.discoveryWarmupDuration)
-        )
-        scheduleDiscoveryWarmupExpiry()
-    }
-
-    private func reconcileDiscoveryWarmup() {
-        guard let discoveryWarmupState else { return }
-
-        if hostValidation.remoteSourceVisibilityCount > 0 {
-            clearDiscoveryWarmup()
-            return
-        }
-
-        if let agentIdentity = currentAgentIdentity(),
-           agentIdentity.id != discoveryWarmupState.agentInstanceID {
-            clearDiscoveryWarmup()
-            return
-        }
-
-        if discoveryWarmupState.isActive == false {
-            clearDiscoveryWarmup()
-            return
-        }
-
-        scheduleDiscoveryWarmupExpiry()
-    }
-
-    private func scheduleDiscoveryWarmupExpiry() {
-        guard let discoveryWarmupState else { return }
-
-        discoveryWarmupExpiryTask?.cancel()
-        discoveryWarmupExpiryTask = Task { @MainActor [weak self] in
-            let remaining = discoveryWarmupState.expiresAt.timeIntervalSinceNow
-            if remaining > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
-            }
-            guard let self else { return }
-            self.reconcileDiscoveryWarmup()
-        }
-    }
-
-    private func clearDiscoveryWarmup() {
-        discoveryWarmupExpiryTask?.cancel()
-        discoveryWarmupExpiryTask = nil
-        discoveryWarmupState = nil
     }
 
     private func bindPersistence() {
@@ -1175,11 +1036,9 @@ public final class RoomControlWorkspaceStore: ObservableObject {
         case .directoryUpdated:
             await reloadShellStateFromCore()
             hostValidation = await coreAgentClient.currentValidationSnapshot()
-            reconcileDiscoveryWarmup()
             lastStatusMessage = "Updated discovery and host validation from BETRCoreAgent."
         case .workspaceUpdated:
             await reloadShellStateFromCore()
-            reconcileDiscoveryWarmup()
             lastStatusMessage = "Updated workspace state from BETRCoreAgent."
         case let .liveTile(liveTileEvent):
             if let shellState {
@@ -1199,7 +1058,6 @@ public final class RoomControlWorkspaceStore: ObservableObject {
             previewTileRegistry.applyDetach(outputID: outputID)
         case let .hostValidation(snapshot):
             hostValidation = await coreAgentClient.makeWizardValidationSnapshot(from: snapshot)
-            reconcileDiscoveryWarmup()
             lastStatusMessage = "Updated validation state from BETRCoreAgent."
         default:
             await reloadShellStateFromCore()

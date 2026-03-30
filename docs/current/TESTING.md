@@ -13,9 +13,9 @@
 - Discovery presentation regression guardrails:
   - a validated `attached_waiting` Discovery Server row must stay yellow `WAITING` without any synthetic TCP/reachability signal in the UI model
   - aggregate Discovery health must still surface mixed status without telling the operator discovery is fully down when sources remain visible
-  - an intentional managed-agent restart must surface a bounded warmup state keyed to the new `agentInstanceID`
   - ordinary workspace and validation refreshes must not change `agentInstanceID` or restart Discovery ownership
-  - the top Discovery card must stay in warmup/neutral `CHECK` copy while listeners are still `attaching` or `attached_waiting`
+  - the top Discovery card must stay in neutral `CHECK` copy while listeners are still `attaching` or `attached_waiting`
+  - the app must not fall back to the configured server endpoint when the SDK has not reported a connected server URL
 - Packaged bootstrap validation:
   - `BETR_CORE_DIR=/Users/joshperlman/Developer/betr/worktrees/betr-core-v3--phase2-media-proof ./scripts/build-app.sh --configuration debug`
   - `./scripts/validate-packaged-agent.sh --configuration debug`

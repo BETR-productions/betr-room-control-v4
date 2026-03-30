@@ -20,10 +20,10 @@
 ## Phase: Discovery Stability
 - [x] Replace the bare managed-agent recycle flag with a one-shot restart intent record
 - [x] Map core agent process identity through workspace and validation snapshots
-- [x] Show bounded Discovery warmup truth after an intentional recycle instead of failure copy during listener bring-up
+- [x] Remove app-managed Discovery warmup authority and drive aggregate state from SDK listener/finder truth only
 - [ ] Prove the real apply/relaunch flow on a Discovery Server network without repeated agent churn
 
 ### Done When
 - Intentional `Apply + Restart` produces one helper recycle and one new agent instance
 - Ordinary refreshes keep the same agent identity and do not reset discovery ownership
-- The top Discovery card stays truthful during warmup without inventing source visibility or transport health
+- The top Discovery card stays truthful from raw SDK state without inventing source visibility or transport health
