@@ -22,6 +22,10 @@
   - the app must not fall back to the configured server endpoint when the SDK has not reported a connected server URL
   - default discovery rows must not include attach attempts, candidate addresses, or attach failure reasons
   - debug discovery diagnostics must only appear in the explicit `DEBUG ONLY` surface and must not be requested during ordinary validation refresh
+- Output live-tile audio regression guardrails:
+  - output live-tile meters must map from helper-published output audio state
+  - output live-tile mute/silent/live states must not be inferred from selected-preview or source-readiness state
+  - output live-tile meter updates must preserve helper-provided left/right levels end to end
 - Local command placeholders:
   - set `BETR_CORE_WORKTREE` to the paired `betr-core-v3` checkout when you are not using the default sibling path
   - set `BETR_ROOM_CONTROL_WORKTREE` when you want a `swift test --package-path` example to target a non-current Room Control checkout

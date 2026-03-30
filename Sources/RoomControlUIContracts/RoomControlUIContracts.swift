@@ -29,6 +29,8 @@ public enum OutputStatusPill: String, Sendable, Equatable, CaseIterable, Identif
 
 public struct OutputLiveTileModel: Sendable, Equatable {
     public let previewState: OutputPreviewState
+    // These fields represent the audio currently published by the output live
+    // tile, not selected-preview audio and not source-readiness telemetry.
     public let audioPresenceState: OutputAudioPresenceState
     public let leftLevel: Double
     public let rightLevel: Double
