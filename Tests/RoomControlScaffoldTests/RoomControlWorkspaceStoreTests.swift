@@ -161,11 +161,9 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
                     normalizedEndpoint: "192.168.55.11:5959",
                     host: "192.168.55.11",
                     port: 5959,
-                    validatedAddress: "192.168.55.11:5959",
-                    listenerLifecycleState: "attached_waiting",
-                    senderListenerAttached: true,
+                    senderListenerCreateSucceeded: true,
                     senderListenerConnected: false,
-                    receiverListenerAttached: true,
+                    receiverListenerCreateSucceeded: true,
                     receiverListenerConnected: false
                 )
             ]
@@ -274,51 +272,45 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
                 host: row.host,
                 port: row.port,
                 normalizedEndpoint: row.normalizedEndpoint,
-                validatedAddress: row.validatedAddress,
-                listenerLifecycleState: NDIListenerLifecycleState(rawValue: row.listenerLifecycleState) ?? .detached,
-                lastStateChangeAt: row.lastStateChangeAt,
-                degradedReason: row.degradedReason.flatMap(NDIListenerLifecycleDegradedReason.init(rawValue:)),
-                senderListenerAttached: row.senderListenerAttached,
+                senderListenerCreateSucceeded: row.senderListenerCreateSucceeded,
+                receiverListenerCreateSucceeded: row.receiverListenerCreateSucceeded,
                 senderListenerConnected: row.senderListenerConnected,
-                senderListenerServerURL: nil,
-                receiverListenerAttached: row.receiverListenerAttached,
+                senderListenerServerURL: row.senderListenerServerURL,
                 receiverListenerConnected: row.receiverListenerConnected,
-                receiverListenerServerURL: nil,
-                senderAttachDiagnostics: NDIListenerAttachDiagnostics(
-                    createFunctionAvailable: row.senderCreateFunctionAvailable,
-                    candidateAddresses: row.senderCandidateAddresses,
-                    attachAttemptCount: row.senderAttachAttemptCount,
-                    lastAttemptedAddress: row.senderLastAttemptedAddress
-                ),
-                receiverAttachDiagnostics: NDIListenerAttachDiagnostics(
-                    createFunctionAvailable: row.receiverCreateFunctionAvailable,
-                    candidateAddresses: row.receiverCandidateAddresses,
-                    attachAttemptCount: row.receiverAttachAttemptCount,
-                    lastAttemptedAddress: row.receiverLastAttemptedAddress
-                )
+                receiverListenerServerURL: row.receiverListenerServerURL
             )
         }
+        let activeDiscoveryServerURL = runtimeDiscoveryServers.lazy
+            .compactMap { $0.senderListenerServerURL ?? $0.receiverListenerServerURL }
+            .first
+        let connectedServerURLs = runtimeDiscoveryServers.compactMap { $0.senderListenerServerURL ?? $0.receiverListenerServerURL }
         let runtimeStatus = runtimeDiscoveryServers.isEmpty
             ? nil
             : NDIRuntimeStatus(
+                availability: .healthy,
+                sdkBootstrapState: .initialized,
                 networkProfile: NDINetworkProfile(
                     discoveryMode: .discoveryServerOnly,
                     discoveryServerURLs: configuredDiscoveryServerURLs,
                     mdnsEnabled: false
                 ),
-                discoveryServers: runtimeDiscoveryServers
+                discoveryServers: runtimeDiscoveryServers,
+                activeDiscoveryServerURL: activeDiscoveryServerURL,
+                connectedServerURLs: connectedServerURLs,
             )
         let directorySnapshot: NDIDirectoryRuntimeSnapshot? = {
             guard runtimeDiscoveryServers.isEmpty == false || remoteSourceVisibilityCount > 0 else {
                 return nil
             }
-            let listenerAttached = runtimeDiscoveryServers.contains { $0.senderListenerAttached || $0.receiverListenerAttached }
+            let listenerAttached = runtimeDiscoveryServers.contains {
+                $0.senderListenerCreateSucceeded || $0.receiverListenerCreateSucceeded
+            }
             let listenerConnected = runtimeDiscoveryServers.contains { $0.senderListenerConnected || $0.receiverListenerConnected }
             return NDIDirectoryRuntimeSnapshot(
                 presence: NDISourcePresenceSnapshot(
                     descriptors: [],
                     discoveryServers: runtimeDiscoveryServers,
-                    activeDiscoveryServerURL: runtimeDiscoveryServers.first?.configuredURL,
+                    activeDiscoveryServerURL: activeDiscoveryServerURL,
                     listenerAttached: listenerAttached,
                     listenerConnected: listenerConnected
                 ),
@@ -329,15 +321,13 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
                 ),
                 sources: [],
                 discovery: NDIDiscoverySnapshot(
-                    activeDiscoveryServerURL: runtimeDiscoveryServers.first?.configuredURL,
+                    activeDiscoveryServerURL: activeDiscoveryServerURL,
                     finderSourceCount: remoteSourceVisibilityCount,
                     localFinderSourceCount: 0,
                     remoteFinderSourceCount: remoteSourceVisibilityCount,
                     localSourceCount: 0,
                     remoteSourceCount: remoteSourceVisibilityCount,
-                    senderListenerAttached: runtimeDiscoveryServers.contains(where: { $0.senderListenerAttached }),
                     senderListenerConnected: runtimeDiscoveryServers.contains(where: { $0.senderListenerConnected }),
-                    receiverListenerAttached: runtimeDiscoveryServers.contains(where: { $0.receiverListenerAttached }),
                     receiverListenerConnected: runtimeDiscoveryServers.contains(where: { $0.receiverListenerConnected })
                 ),
                 activationTable: NDIActivationTableSnapshot(entries: [])

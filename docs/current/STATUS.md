@@ -3,7 +3,7 @@
 - owner: unassigned
 - status: current
 - applies_to: `betr-room-control-v4`
-- last_verified: 2026-03-29
+- last_verified: 2026-03-30
 
 ## Current State
 - Restart-line Room Control repository scaffolded as a clean native repo.
@@ -67,6 +67,10 @@
   - `BETRCoreAgentClient.waitForAgentAvailability()` now invalidates stale XPC connections between retries instead of hammering one timed-out channel
   - the default per-operation timeout is now 3 seconds instead of 1.5 seconds so first-launch agent bring-up has more room
   - the startup blocker screen now distinguishes a real install-context failure from a generic agent startup failure instead of always telling the operator to drag the app again
+- Discovery-7 startup now respects config-first helper bootstrap:
+  - helper launch readiness now means the core startup barrier has finished bootstrap, not just that the Mach service answered once
+  - `waitForAgentAvailability()` now uses a startup-sized snapshot timeout by default so the app does not outrun config write/verify plus SDK init on first launch
+  - workspace snapshot reads accept an explicit timeout override without changing the generic timeout behavior for normal runtime commands
 - The network-control plan is now more honest before it ever reaches the privileged boundary:
   - Room Control inspects the live macOS network service order before building a new plan
   - service-order commands are skipped when the selected NDI service is already at the top
@@ -97,6 +101,12 @@
   - listeners created but not yet connected render as neutral `CHECK` / `WAITING`, not failure and not synthetic warmup
   - `activeServer` only comes from the SDK-reported listener server URL, never from configured-endpoint fallback
   - remote source visibility is still current-process truth only; the app does not invent sticky discovery health across restarts
+- The Discovery-7 bootstrap audit and app-boundary notes now live in [DISCOVERY_BOOTSTRAP_AUDIT.md](./DISCOVERY_BOOTSTRAP_AUDIT.md).
+- The Discovery-7 SDK alignment audit now records the current app-boundary verdict as `ALIGNED ENOUGH TO CONTINUE`:
+  - startup/readiness behavior now respects helper bootstrap completion
+  - no app-side configured-endpoint fallback remains in connected-server truth
+  - remaining risk is discovery diagnostics still sitting close to operator-facing row presentation
+  - see [DISCOVERY_SDK_ALIGNMENT_AUDIT.md](./DISCOVERY_SDK_ALIGNMENT_AUDIT.md)
 - `spctl -a -vv` now accepts the built app bundle as `Notarized Developer ID`.
 - The left rail now has another operator-parity recovery slice staged on the governed shipping branch:
   - `RUN OF SHOW`, `CLIP PLAYER`, and `TIMER` are back to the V3 stacked-surface rhythm with divider-separated sections instead of flattened generic cards

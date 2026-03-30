@@ -40,22 +40,19 @@ public struct DiscoveryServerPresentationEntry: Sendable, Equatable, Identifiabl
     public let visualState: DiscoveryServerVisualState
     public let statusWord: String
     public let detailText: String?
-    public let validatedAddress: String?
 
     public init(
         id: String,
         label: String,
         visualState: DiscoveryServerVisualState,
         statusWord: String,
-        detailText: String? = nil,
-        validatedAddress: String? = nil
+        detailText: String? = nil
     ) {
         self.id = id
         self.label = label
         self.visualState = visualState
         self.statusWord = statusWord
         self.detailText = detailText
-        self.validatedAddress = validatedAddress
     }
 }
 
@@ -251,8 +248,7 @@ public enum DiscoveryServerPresentationBuilder {
             label: runtimeRow.normalizedEndpoint,
             visualState: runtimeRow.discoveryVisualState,
             statusWord: runtimeRow.discoveryStatusWord,
-            detailText: runtimeRow.discoveryDetailText,
-            validatedAddress: runtimeRow.validatedAddress
+            detailText: runtimeRow.discoveryDetailText
         )
     }
 
@@ -271,78 +267,62 @@ public enum DiscoveryServerPresentationBuilder {
 }
 
 public extension NDIWizardDiscoveryServerRow {
+    private var hasCreateFailure: Bool {
+        senderListenerCreateSucceeded == false || receiverListenerCreateSucceeded == false
+    }
+
     private var hasConnectedListener: Bool {
         senderListenerConnected || receiverListenerConnected
     }
 
-    private var hasAttachedListener: Bool {
-        senderListenerAttached || receiverListenerAttached || validatedAddress != nil
-    }
-
-    private var hasCreateFailure: Bool {
-        listenerLifecycleState == "create_failed"
-            || senderAttachFailureReason != nil
-            || receiverAttachFailureReason != nil
-            || degradedReason != nil
+    private var bothCreated: Bool {
+        senderListenerCreateSucceeded && receiverListenerCreateSucceeded
     }
 
     var discoveryVisualState: DiscoveryServerVisualState {
-        if senderListenerConnected && receiverListenerConnected {
-            return .connected
-        }
         if hasCreateFailure {
             return .error
+        }
+        if hasConnectedListener {
+            return .connected
         }
         return .warning
     }
 
     var discoveryStatusWord: String {
+        if hasCreateFailure {
+            return "ERROR"
+        }
+        if hasConnectedListener {
+            return "CONNECTED"
+        }
+        if bothCreated {
+            return "WAITING"
+        }
         switch discoveryVisualState {
         case .draftOnly:
             return "DRAFT"
-        case .connected:
-            return "CONNECTED"
-        case .warning:
-            if hasAttachedListener || hasConnectedListener {
-                return "WAITING"
-            }
+        case .connected, .warning:
             return "CHECK"
         case .error:
             return "ERROR"
         }
     }
 
-    var discoveryLifecycleLabel: String {
-        Self.prettyLabel(from: listenerLifecycleState)
-    }
-
     var discoveryDetailText: String {
-        if discoveryVisualState == .connected {
-            return validatedAddress.map { "Validated on \($0)." } ?? "Both listeners are connected."
+        if hasCreateFailure {
+            return "SDK listener create failed."
         }
-        if let failure = senderAttachFailureReason?.nilIfEmpty
-            ?? receiverAttachFailureReason?.nilIfEmpty
-            ?? degradedReason?.nilIfEmpty {
-            return "\(Self.prettyLabel(from: failure))."
+        if senderListenerConnected && receiverListenerConnected {
+            return "Send and recv listeners are connected."
         }
         if hasConnectedListener {
-            return "One listener is connected and the other is still catching up."
+            return "One SDK listener is connected and the other is still waiting."
         }
-        if hasAttachedListener {
-            return "Listener exists and the SDK has not reported a connected server yet."
+        if bothCreated {
+            return "Listeners were created, but the SDK has not reported a connected Discovery Server yet."
         }
-        return "Server is configured, but BETR has not created a live listener yet."
-    }
-
-    private static func prettyLabel(from rawValue: String) -> String {
-        rawValue
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { fragment in
-                let word = String(fragment)
-                return word.prefix(1).uppercased() + word.dropFirst()
-            }
-            .joined(separator: " ")
+        return "Server is configured, but BETR has not created live SDK listeners yet."
     }
 }
 

@@ -151,18 +151,49 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(validation.discoveryState, .passed)
         XCTAssertTrue(validation.multicastRoutePinnedToCommittedInterface)
         XCTAssertEqual(validation.discoveryServers.count, 1)
-        XCTAssertEqual(
-            validation.discoveryServers.first?.senderCandidateAddresses,
-            ["192.168.55.11:5959"]
+        XCTAssertEqual(validation.sdkBootstrapState, "initialized")
+        XCTAssertTrue(validation.discoveryServers.first?.senderListenerCreateSucceeded == true)
+        XCTAssertTrue(validation.discoveryServers.first?.receiverListenerCreateSucceeded == true)
+        XCTAssertEqual(validation.discoveryServers.first?.senderListenerServerURL, "ndi://192.168.55.11")
+        XCTAssertEqual(validation.discoveryServers.first?.receiverListenerServerURL, "ndi://192.168.55.11")
+    }
+
+    func testCurrentDiscoveryDebugSnapshotMapsEngineeringDiagnostics() async {
+        let client = BETRCoreAgentClient(
+            discoveryDebugSnapshotProvider: {
+                BETRCoreDiscoveryDebugSnapshotResponse(
+                    generatedAt: Date(timeIntervalSince1970: 1_700_000_400),
+                    sdkBootstrapState: .initialized,
+                    configDirectory: "/Users/test/Library/Application Support/BETRCoreAgentV3",
+                    configPath: "/Users/test/Library/Application Support/BETRCoreAgentV3/ndi-config.v1.json",
+                    sdkLoadedPath: "/Library/NDI/libndi.dylib",
+                    sdkVersion: "6.1.1",
+                    discoveryServers: [
+                        NDIDiscoveryServerDebugStatus(
+                            id: "192.168.55.11:5959",
+                            normalizedEndpoint: "192.168.55.11:5959",
+                            validatedAddress: "192.168.55.11:5959",
+                            listenerDebugState: .attachedWaiting,
+                            senderCreateFunctionAvailable: true,
+                            receiverCreateFunctionAvailable: true,
+                            senderCandidateAddresses: ["192.168.55.11:5959"],
+                            receiverCandidateAddresses: ["192.168.55.11:5959"],
+                            senderAttachAttemptCount: 1,
+                            receiverAttachAttemptCount: 1,
+                            senderLastAttemptedAddress: "192.168.55.11:5959",
+                            receiverLastAttemptedAddress: "192.168.55.11:5959"
+                        )
+                    ]
+                )
+            }
         )
-        XCTAssertEqual(validation.discoveryServers.first?.senderAttachAttemptCount, 1)
-        XCTAssertEqual(validation.discoveryServers.first?.senderLastAttemptedAddress, "192.168.55.11:5959")
-        XCTAssertEqual(
-            validation.discoveryServers.first?.receiverCandidateAddresses,
-            ["192.168.55.11:5959"]
-        )
-        XCTAssertEqual(validation.discoveryServers.first?.receiverAttachAttemptCount, 1)
-        XCTAssertEqual(validation.discoveryServers.first?.receiverLastAttemptedAddress, "192.168.55.11:5959")
+
+        let snapshot = await client.currentDiscoveryDebugSnapshot()
+
+        XCTAssertEqual(snapshot?.sdkBootstrapState, "initialized")
+        XCTAssertEqual(snapshot?.configPath, "/Users/test/Library/Application Support/BETRCoreAgentV3/ndi-config.v1.json")
+        XCTAssertEqual(snapshot?.discoveryServers.first?.listenerDebugState, "attached_waiting")
+        XCTAssertEqual(snapshot?.discoveryServers.first?.senderCandidateAddresses, ["192.168.55.11:5959"])
     }
 
     func testCurrentValidationSnapshotKeepsConfiguredDiscoveryServerVisibleWhenListenerStatusIsMissing() async {
@@ -305,7 +336,11 @@ final class BETRCoreAgentClientTests: XCTestCase {
         )
 
         do {
-            _ = try await client.waitForAgentAvailability(maxAttempts: 1, retryIntervalNanoseconds: 1_000_000)
+            _ = try await client.waitForAgentAvailability(
+                maxAttempts: 1,
+                retryIntervalNanoseconds: 1_000_000,
+                requestTimeoutNanoseconds: 50_000_000
+            )
             XCTFail("Expected BETRCoreAgent timeout")
         } catch {
             XCTAssertTrue(error.localizedDescription.contains("timed out"))
@@ -331,7 +366,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
 
         let snapshot = try await client.waitForAgentAvailability(
             maxAttempts: 2,
-            retryIntervalNanoseconds: 1_000_000
+            retryIntervalNanoseconds: 1_000_000,
+            requestTimeoutNanoseconds: 50_000_000
         )
 
         XCTAssertEqual(snapshot.outputs.count, 2)
@@ -514,10 +550,10 @@ final class BETRCoreAgentClientTests: XCTestCase {
                             configuredURL: "192.168.55.11",
                             host: "192.168.55.11",
                             port: 5959,
-                            senderListenerAttached: true,
+                            senderListenerCreateSucceeded: true,
+                            receiverListenerCreateSucceeded: true,
                             senderListenerConnected: true,
                             senderListenerServerURL: "ndi://192.168.55.11",
-                            receiverListenerAttached: true,
                             receiverListenerConnected: true,
                             receiverListenerServerURL: "ndi://192.168.55.11"
                         )
@@ -557,10 +593,10 @@ final class BETRCoreAgentClientTests: XCTestCase {
                             configuredURL: "192.168.55.11",
                             host: "192.168.55.11",
                             port: 5959,
-                            senderListenerAttached: true,
+                            senderListenerCreateSucceeded: true,
+                            receiverListenerCreateSucceeded: true,
                             senderListenerConnected: false,
                             senderListenerServerURL: "ndi://192.168.55.11",
-                            receiverListenerAttached: true,
                             receiverListenerConnected: false,
                             receiverListenerServerURL: "ndi://192.168.55.11"
                         )
@@ -601,13 +637,10 @@ final class BETRCoreAgentClientTests: XCTestCase {
                             host: "192.168.55.11",
                             port: 5959,
                             normalizedEndpoint: "192.168.55.11:5959",
-                            validatedAddress: "192.168.55.11:5959",
-                            listenerLifecycleState: .attachedWaiting,
-                            lastStateChangeAt: Date(),
-                            senderListenerAttached: true,
+                            senderListenerCreateSucceeded: true,
+                            receiverListenerCreateSucceeded: true,
                             senderListenerConnected: false,
                             senderListenerServerURL: nil,
-                            receiverListenerAttached: true,
                             receiverListenerConnected: false,
                             receiverListenerServerURL: nil
                         )
@@ -1554,7 +1587,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
 
         let runtimeStatus = NDIRuntimeStatus(
             availability: .healthy,
-            sdkLoaded: true,
+            sdkBootstrapState: .initialized,
             sdkVersion: "6.1.1",
             sdkLoadedPath: "/Library/NDI/libndi.dylib",
             networkProfile: NDINetworkProfile(
@@ -1569,33 +1602,24 @@ final class BETRCoreAgentClientTests: XCTestCase {
                     host: "192.168.55.11",
                     port: 5959,
                     normalizedEndpoint: "192.168.55.11:5959",
-                    validatedAddress: "192.168.55.11:5959",
-                    listenerLifecycleState: .connected,
-                    lastStateChangeAt: Date(),
-                    senderListenerAttached: true,
+                    senderListenerCreateSucceeded: true,
+                    receiverListenerCreateSucceeded: true,
                     senderListenerConnected: true,
                     senderListenerServerURL: "ndi://192.168.55.11",
-                    receiverListenerAttached: true,
                     receiverListenerConnected: true,
-                    receiverListenerServerURL: "ndi://192.168.55.11",
-                    senderAttachDiagnostics: NDIListenerAttachDiagnostics(
-                        createFunctionAvailable: true,
-                        candidateAddresses: ["192.168.55.11:5959"],
-                        attachAttemptCount: 1,
-                        lastAttemptedAddress: "192.168.55.11:5959"
-                    ),
-                    receiverAttachDiagnostics: NDIListenerAttachDiagnostics(
-                        createFunctionAvailable: true,
-                        candidateAddresses: ["192.168.55.11:5959"],
-                        attachAttemptCount: 1,
-                        lastAttemptedAddress: "192.168.55.11:5959"
-                    )
+                    receiverListenerServerURL: "ndi://192.168.55.11"
                 )
             ],
             activeDiscoveryServerURL: activeDiscoveryServerURL,
             connectedServerURLs: activeDiscoveryServerURL.map { [$0] } ?? [],
             selectedInterfaceID: "en7"
         )
+        let listenerAttached = runtimeStatus.discoveryServers.contains {
+            $0.senderListenerCreateSucceeded || $0.receiverListenerCreateSucceeded
+        }
+        let listenerConnected = runtimeStatus.discoveryServers.contains {
+            $0.senderListenerConnected || $0.receiverListenerConnected
+        }
 
         let presence = NDISourcePresenceSnapshot(
             descriptors: [presenter, slideshow],
@@ -1605,8 +1629,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
             ],
             discoveryServers: runtimeStatus.discoveryServers,
             activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL,
-            listenerAttached: true,
-            listenerConnected: true
+            listenerAttached: listenerAttached,
+            listenerConnected: listenerConnected
         )
 
         let directorySnapshot = NDIDirectoryRuntimeSnapshot(
@@ -1629,8 +1653,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
                     firstSeenAt: Date(),
                     lastSeenAt: Date(),
                     activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL,
-                    listenerAttached: true,
-                    listenerConnected: true
+                    listenerAttached: listenerAttached,
+                    listenerConnected: listenerConnected
                 ),
                 NDIDirectorySourceRecord(
                     descriptor: slideshow,
@@ -1638,8 +1662,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
                     firstSeenAt: Date(),
                     lastSeenAt: Date(),
                     activeDiscoveryServerURL: runtimeStatus.activeDiscoveryServerURL,
-                    listenerAttached: true,
-                    listenerConnected: true
+                    listenerAttached: listenerAttached,
+                    listenerConnected: listenerConnected
                 ),
             ],
             discovery: NDIDiscoverySnapshot(
@@ -1651,9 +1675,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
                 remoteFinderSourceCount: remoteFinderSourceCount,
                 localSourceCount: localSourceCount,
                 remoteSourceCount: remoteSourceCount,
-                senderListenerAttached: runtimeStatus.discoveryServers.contains(where: { $0.senderListenerAttached }),
                 senderListenerConnected: runtimeStatus.discoveryServers.contains(where: { $0.senderListenerConnected }),
-                receiverListenerAttached: runtimeStatus.discoveryServers.contains(where: { $0.receiverListenerAttached }),
                 receiverListenerConnected: runtimeStatus.discoveryServers.contains(where: { $0.receiverListenerConnected })
             ),
             activationTable: NDIActivationTableSnapshot(entries: [])
