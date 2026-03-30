@@ -1189,7 +1189,7 @@ public actor BETRCoreAgentClient {
     ) -> String {
         let discovery = validation?.directorySnapshot?.discovery
         let serverLabel = validation.flatMap(activeDiscoveryServerURL(for:))
-            ?? "mDNS"
+            ?? "none"
         let finderCount = discovery?.finderSourceCount ?? sourceCount
         let listenerCount = discovery?.listenerSourceCount ?? 0
         return "\(finderCount) finder • \(listenerCount) listener • \(serverLabel)"
@@ -1307,54 +1307,40 @@ public actor BETRCoreAgentClient {
         let configuredDiscoveryServers = configuredDiscoveryServers(for: validation)
         let discoveryServers = validation.runtimeStatus?.discoveryServers ?? []
         let discovery = validation.directorySnapshot?.discovery
-        let finderCount = discovery?.finderSourceCount ?? validation.directorySnapshot?.sources.count ?? 0
-        let listenerCount = discovery?.listenerSourceCount ?? 0
-        let remoteVisibilityCount = discovery?.remoteSourceCount ?? max(finderCount, listenerCount)
-        let localVisibilityCount = discovery?.localSourceCount ?? 0
-        let localOnlyVisibility = localVisibilityCount > 0 && remoteVisibilityCount == 0
+        let remoteVisibilityCount = discovery?.remoteSourceCount ?? 0
+        let listenerVisibilityCount = discovery?.listenerSourceCount ?? 0
+        let hasVisibleDiscovery = remoteVisibilityCount > 0 || listenerVisibilityCount > 0
+        let hasConnectedListener = discoveryServers.contains {
+            $0.senderListenerConnected || $0.receiverListenerConnected
+        }
+        let hasAttachedListener = discoveryServers.contains {
+            $0.senderListenerAttached || $0.receiverListenerAttached
+        }
+        let hasCreateFailure = discoveryServers.contains {
+            $0.listenerLifecycleState == .createFailed || $0.degradedReason != nil
+        }
 
         guard configuredDiscoveryServers.isEmpty == false else {
             return .noDiscoveryConfigured
         }
 
-        if discoveryServers.isEmpty {
-            if remoteVisibilityCount > 0 {
-                return .finderVisibleListenerDegraded
-            }
-            return localOnlyVisibility ? .localSourcesOnlyVisible : .listenerCreateFailed
+        if hasVisibleDiscovery {
+            return .visible
         }
 
-        if discoveryServers.contains(where: { $0.senderListenerConnected && $0.receiverListenerConnected }) {
-            if remoteVisibilityCount > 0 {
-                return .connectedAndSendersVisible
-            }
-            return localOnlyVisibility ? .localSourcesOnlyVisible : .connectedNoSendersVisible
+        if hasConnectedListener {
+            return .connected
         }
 
-        if localOnlyVisibility {
-            return .localSourcesOnlyVisible
+        if hasAttachedListener {
+            return .waiting
         }
 
-        if remoteVisibilityCount > 0,
-           discoveryServers.contains(where: {
-               $0.senderListenerAttached
-                   || $0.receiverListenerAttached
-                   || $0.senderListenerConnected
-                   || $0.receiverListenerConnected
-           }) {
-            return .finderVisibleListenerDegraded
+        if hasCreateFailure {
+            return .error
         }
 
-        if discoveryServers.contains(where: {
-            $0.senderListenerAttached
-                || $0.receiverListenerAttached
-                || $0.senderListenerConnected
-                || $0.receiverListenerConnected
-        }) {
-            return .listenerAttachedNotConnected
-        }
-
-        return .listenerCreateFailed
+        return .waiting
     }
 
     private static func activeDiscoveryServerURL(
@@ -1368,7 +1354,6 @@ public actor BETRCoreAgentClient {
         }
         return validation.directorySnapshot?.discovery.activeDiscoveryServerURL
             ?? validation.runtimeStatus?.activeDiscoveryServerURL
-            ?? configuredDiscoveryServers(for: validation).first
     }
 
     private static func configuredDiscoveryServers(

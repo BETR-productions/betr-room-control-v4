@@ -147,7 +147,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(validation.localSourceVisibilityCount, 0)
         XCTAssertEqual(validation.remoteSourceVisibilityCount, 2)
         XCTAssertEqual(validation.agentInstanceID, "agent-validation")
-        XCTAssertEqual(validation.discoveryDetailState, .connectedAndSendersVisible)
+        XCTAssertEqual(validation.discoveryDetailState, .visible)
         XCTAssertEqual(validation.discoveryState, .passed)
         XCTAssertTrue(validation.multicastRoutePinnedToCommittedInterface)
         XCTAssertEqual(validation.discoveryServers.count, 1)
@@ -184,12 +184,12 @@ final class BETRCoreAgentClientTests: XCTestCase {
 
         let validation = await client.currentValidationSnapshot()
 
-        XCTAssertEqual(validation.activeDiscoveryServerURL, "192.168.55.11")
-        XCTAssertEqual(validation.discoveryDetailState, .listenerCreateFailed)
-        XCTAssertEqual(validation.discoveryState, .blocked)
+        XCTAssertNil(validation.activeDiscoveryServerURL)
+        XCTAssertEqual(validation.discoveryDetailState, .waiting)
+        XCTAssertEqual(validation.discoveryState, .warning)
         XCTAssertEqual(
             validation.discoverySummary,
-            "BETR has a Discovery Server configured, but no listener instance is live yet."
+            "Discovery listeners exist, but the SDK has not reported a connected Discovery Server yet."
         )
     }
 
@@ -292,7 +292,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
 
         let shellState = await client.bootstrapShellState(rootDirectory: "/tmp/betr-room-control-v4-tests")
 
-        XCTAssertEqual(shellState.workspace.discoverySummary, "0 finder • 0 listener • 192.168.55.11")
+        XCTAssertEqual(shellState.workspace.discoverySummary, "0 finder • 0 listener • none")
     }
 
     func testWaitForAgentAvailabilityTimesOutInsteadOfHanging() async {
@@ -535,11 +535,11 @@ final class BETRCoreAgentClientTests: XCTestCase {
 
         let validation = await client.currentValidationSnapshot()
 
-        XCTAssertEqual(validation.discoveryDetailState, .localSourcesOnlyVisible)
+        XCTAssertEqual(validation.discoveryDetailState, .connected)
         XCTAssertEqual(validation.discoveryState, .warning)
         XCTAssertEqual(
             validation.discoverySummary,
-            "BETR attached discovery, but only sources from this Mac are visible so far."
+            "Discovery listeners are connected to the Discovery Server, but no remote source catalog is visible yet."
         )
         XCTAssertEqual(
             validation.sourceCatalogSummary,
@@ -578,15 +578,15 @@ final class BETRCoreAgentClientTests: XCTestCase {
 
         let validation = await client.currentValidationSnapshot()
 
-        XCTAssertEqual(validation.discoveryDetailState, .finderVisibleListenerDegraded)
+        XCTAssertEqual(validation.discoveryDetailState, .visible)
         XCTAssertEqual(validation.discoveryState, .passed)
         XCTAssertEqual(
             validation.discoveryNextAction,
-            "Discovery is functionally working because BETR can see sources. Compare listener telemetry against NDI Discovery, but do not treat source visibility as blocked."
+            "Discovery is live. Move to actual source receive and send verification next."
         )
         XCTAssertEqual(
             validation.discoverySummary,
-            "BETR can already see usable sources, but listener telemetry has not reached a fully connected state yet."
+            "Discovery is working and remote source visibility is present."
         )
     }
 
@@ -625,10 +625,10 @@ final class BETRCoreAgentClientTests: XCTestCase {
 
         let validation = await client.currentValidationSnapshot()
 
-        XCTAssertEqual(validation.discoveryDetailState, .listenerAttachedNotConnected)
+        XCTAssertEqual(validation.discoveryDetailState, .waiting)
         XCTAssertEqual(
             validation.discoveryNextAction,
-            "The BETR host profile is already in place. Leave Apply + Restart alone and troubleshoot Discovery Server listener connectivity on the committed NIC."
+            "The BETR host profile is already in place. Leave Apply + Restart alone and watch the SDK listener state on the committed NIC."
         )
     }
 
@@ -1570,7 +1570,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
                     port: 5959,
                     normalizedEndpoint: "192.168.55.11:5959",
                     validatedAddress: "192.168.55.11:5959",
-                    listenerLifecycleState: .connectedVisible,
+                    listenerLifecycleState: .connected,
                     lastStateChangeAt: Date(),
                     senderListenerAttached: true,
                     senderListenerConnected: true,

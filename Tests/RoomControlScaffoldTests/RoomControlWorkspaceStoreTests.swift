@@ -142,7 +142,7 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         store.shutdown()
     }
 
-    func testStartShowsDiscoveryWarmupAfterConsumedRestartIntent() async {
+    func testStartUsesWaitingDiscoveryCopyAfterConsumedRestartIntent() async {
         let rootDirectory = NSTemporaryDirectory() + UUID().uuidString
         let agentStartedAt = Date()
         let workspace = makeWorkspaceSnapshot(
@@ -191,12 +191,12 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         )
 
         store.start()
-        await waitForBootstrapAndWarmup(in: store)
+        await waitForBootstrap(in: store)
 
-        XCTAssertTrue(store.isDiscoveryWarmupActive)
-        XCTAssertEqual(store.discoveryWarmupState?.agentInstanceID, "agent-new")
-        XCTAssertTrue(store.effectiveDiscoverySummaryMessage.contains("warming up"))
-        XCTAssertTrue(store.effectiveDiscoveryNextAction.contains("Do not apply again yet"))
+        XCTAssertEqual(store.hostValidation.discoveryDetailState, .waiting)
+        XCTAssertEqual(store.effectiveDiscoverySummaryMessage, store.hostValidation.discoverySummary)
+        XCTAssertEqual(store.effectiveDiscoveryNextAction, store.hostValidation.discoveryNextAction)
+        XCTAssertFalse(store.effectiveDiscoverySummaryMessage.contains("warming up"))
         store.shutdown()
     }
 
@@ -211,15 +211,15 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         XCTFail("Timed out waiting for selected interface \(interfaceID)")
     }
 
-    private func waitForBootstrapAndWarmup(in store: RoomControlWorkspaceStore) async {
+    private func waitForBootstrap(in store: RoomControlWorkspaceStore) async {
         for _ in 0..<100 {
-            if store.isBootstrapped && store.isDiscoveryWarmupActive {
+            if store.isBootstrapped {
                 return
             }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
 
-        XCTFail("Timed out waiting for bootstrap warmup state.")
+        XCTFail("Timed out waiting for bootstrap state.")
     }
 
     private func makeRecord(id: String, hardwarePortLabel: String, ipv4CIDR: String) -> BETRCoreHostInterfaceRecord {
@@ -267,6 +267,7 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         remoteSourceVisibilityCount: Int = 0,
         discoveryServers: [NDIWizardDiscoveryServerRow] = []
     ) -> BETRCoreValidationSnapshotResponse {
+        let configuredDiscoveryServerURLs = discoveryServers.map(\.configuredURL)
         let runtimeDiscoveryServers = discoveryServers.map { row in
             NDIDiscoveryServerStatus(
                 configuredURL: row.configuredURL,
@@ -299,7 +300,14 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         }
         let runtimeStatus = runtimeDiscoveryServers.isEmpty
             ? nil
-            : NDIRuntimeStatus(discoveryServers: runtimeDiscoveryServers)
+            : NDIRuntimeStatus(
+                networkProfile: NDINetworkProfile(
+                    discoveryMode: .discoveryServerOnly,
+                    discoveryServerURLs: configuredDiscoveryServerURLs,
+                    mdnsEnabled: false
+                ),
+                discoveryServers: runtimeDiscoveryServers
+            )
         let directorySnapshot: NDIDirectoryRuntimeSnapshot? = {
             guard runtimeDiscoveryServers.isEmpty == false || remoteSourceVisibilityCount > 0 else {
                 return nil
@@ -341,7 +349,8 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
             agentStartedAt: agentStartedAt,
             hostState: BETRNDIHostStateSnapshot(
                 showLocationName: "BETR NDI",
-                showNetworkCIDR: "192.168.55.0/24"
+                showNetworkCIDR: "192.168.55.0/24",
+                discoveryServers: configuredDiscoveryServerURLs
             ),
             runtimeStatus: runtimeStatus,
             directorySnapshot: directorySnapshot

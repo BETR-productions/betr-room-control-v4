@@ -405,12 +405,10 @@ public enum NDIWizardCheckState: String, Sendable, Equatable {
 
 public enum NDIWizardDiscoveryState: String, Sendable, Equatable {
     case noDiscoveryConfigured = "no_discovery_configured"
-    case listenerCreateFailed = "listener_create_failed"
-    case listenerAttachedNotConnected = "listener_attached_not_connected"
-    case localSourcesOnlyVisible = "local_sources_only_visible"
-    case finderVisibleListenerDegraded = "finder_visible_listener_degraded"
-    case connectedNoSendersVisible = "connected_no_senders_visible"
-    case connectedAndSendersVisible = "connected_and_senders_visible"
+    case error
+    case waiting
+    case connected
+    case visible
 }
 
 public enum NDIWizardTrafficProbeState: String, Sendable, Equatable {
@@ -958,13 +956,13 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
 
     public var discoveryState: NDIWizardCheckState {
         switch discoveryDetailState {
-        case .connectedAndSendersVisible, .finderVisibleListenerDegraded:
+        case .visible:
             return .passed
         case .noDiscoveryConfigured:
             return .warning
-        case .listenerCreateFailed:
+        case .error:
             return .blocked
-        case .listenerAttachedNotConnected, .localSourcesOnlyVisible, .connectedNoSendersVisible:
+        case .waiting, .connected:
             return .warning
         }
     }
@@ -973,18 +971,14 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
         switch discoveryDetailState {
         case .noDiscoveryConfigured:
             return "No Discovery Server is configured for the current runtime path."
-        case .listenerCreateFailed:
-            return "BETR has a Discovery Server configured, but no listener instance is live yet."
-        case .listenerAttachedNotConnected:
-            return "BETR attached Discovery Server listeners, but the SDK does not report them as connected yet."
-        case .localSourcesOnlyVisible:
-            return "BETR attached discovery, but only sources from this Mac are visible so far."
-        case .finderVisibleListenerDegraded:
-            return "BETR can already see usable sources, but listener telemetry has not reached a fully connected state yet."
-        case .connectedNoSendersVisible:
-            return "BETR connected both listeners to the Discovery Server, but no visible senders were reported yet."
-        case .connectedAndSendersVisible:
-            return "BETR connected both listeners and visible senders are being reported."
+        case .error:
+            return "BETR could not create a live Discovery Server listener from the committed SDK configuration."
+        case .waiting:
+            return "Discovery listeners exist, but the SDK has not reported a connected Discovery Server yet."
+        case .connected:
+            return "Discovery listeners are connected to the Discovery Server, but no remote source catalog is visible yet."
+        case .visible:
+            return "Discovery is working and remote source visibility is present."
         }
     }
 
@@ -994,23 +988,19 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
         switch discoveryDetailState {
         case .noDiscoveryConfigured:
             return "Add the room Discovery Server address and apply the BETR profile again."
-        case .listenerCreateFailed:
+        case .error:
             if hostApplyLooksSettled {
-                return "The BETR host profile is already committed. Stay focused on Discovery Server listener bring-up and the configured endpoint instead of applying again."
+                return "The BETR host profile is already committed. Stay focused on the Discovery Server endpoint and SDK listener creation instead of applying again."
             }
-            return "Restart BETR on the committed profile. If this persists, treat it as listener bring-up trouble instead of a missing Discovery Server config."
-        case .listenerAttachedNotConnected:
+            return "Restart BETR on the committed profile once, then treat any repeat failure as SDK listener setup trouble."
+        case .waiting:
             if hostApplyLooksSettled {
-                return "The BETR host profile is already in place. Leave Apply + Restart alone and troubleshoot Discovery Server listener connectivity on the committed NIC."
+                return "The BETR host profile is already in place. Leave Apply + Restart alone and watch the SDK listener state on the committed NIC."
             }
             return "Give BETR a clean apply-and-relaunch cycle, then refresh validation again."
-        case .localSourcesOnlyVisible:
-            return "Discovery is alive, but BETR is only seeing its own local sources. Treat this as room-catalog trouble and compare the room source list against NDI Discovery."
-        case .finderVisibleListenerDegraded:
-            return "Discovery is functionally working because BETR can see sources. Compare listener telemetry against NDI Discovery, but do not treat source visibility as blocked."
-        case .connectedNoSendersVisible:
-            return "Discovery is attached. Check whether anything is actively advertising on the room network."
-        case .connectedAndSendersVisible:
+        case .connected:
+            return "Discovery is connected. Check whether remote sources are actively publishing into the room catalog."
+        case .visible:
             return "Discovery is live. Move to actual source receive and send verification next."
         }
     }
@@ -1089,8 +1079,7 @@ public struct NDIWizardValidationSnapshot: Sendable, Equatable {
 
     public var overallReady: Bool {
         configState == .passed
-            && (discoveryDetailState == .connectedAndSendersVisible
-                || discoveryDetailState == .finderVisibleListenerDegraded)
+            && discoveryDetailState == .visible
             && multicastRoutePinnedToCommittedInterface
     }
 }

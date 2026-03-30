@@ -63,15 +63,18 @@ public struct DiscoveryAggregateStatus: Sendable, Equatable {
     public let usesMDNSOnly: Bool
     public let healthyCount: Int
     public let totalCount: Int
+    public let hasError: Bool
 
     public init(
         usesMDNSOnly: Bool = false,
         healthyCount: Int = 0,
-        totalCount: Int = 0
+        totalCount: Int = 0,
+        hasError: Bool = false
     ) {
         self.usesMDNSOnly = usesMDNSOnly
         self.healthyCount = healthyCount
         self.totalCount = totalCount
+        self.hasError = hasError
     }
 
     public var visualState: DiscoveryServerVisualState {
@@ -81,10 +84,10 @@ public struct DiscoveryAggregateStatus: Sendable, Equatable {
         if healthyCount == totalCount, totalCount > 0 {
             return .connected
         }
-        if healthyCount > 0 {
-            return .warning
+        if hasError && healthyCount == 0 {
+            return .error
         }
-        return .error
+        return .warning
     }
 
     public var label: String {
@@ -209,10 +212,12 @@ public enum DiscoveryServerPresentationBuilder {
         }
 
         let healthyCount = entries.filter { $0.visualState == .connected }.count
+        let hasError = entries.contains { $0.visualState == .error }
         return DiscoveryAggregateStatus(
             usesMDNSOnly: false,
             healthyCount: healthyCount,
-            totalCount: entries.count
+            totalCount: entries.count,
+            hasError: hasError
         )
     }
 
@@ -266,30 +271,26 @@ public enum DiscoveryServerPresentationBuilder {
 }
 
 public extension NDIWizardDiscoveryServerRow {
-    private var hasListenerBringUpEvidence: Bool {
-        senderListenerConnected
-            || receiverListenerConnected
-            || senderListenerAttached
-            || receiverListenerAttached
-            || validatedAddress != nil
-            || listenerLifecycleState == "attaching"
-            || listenerLifecycleState == "attached_waiting"
+    private var hasConnectedListener: Bool {
+        senderListenerConnected || receiverListenerConnected
+    }
+
+    private var hasAttachedListener: Bool {
+        senderListenerAttached || receiverListenerAttached || validatedAddress != nil
+    }
+
+    private var hasCreateFailure: Bool {
+        listenerLifecycleState == "create_failed"
+            || senderAttachFailureReason != nil
+            || receiverAttachFailureReason != nil
+            || degradedReason != nil
     }
 
     var discoveryVisualState: DiscoveryServerVisualState {
         if senderListenerConnected && receiverListenerConnected {
             return .connected
         }
-        if listenerLifecycleState == "attached_waiting" || listenerLifecycleState == "attaching" {
-            return .warning
-        }
-        if listenerLifecycleState == "degraded" {
-            return hasListenerBringUpEvidence ? .warning : .error
-        }
-        if hasListenerBringUpEvidence {
-            return .warning
-        }
-        if senderAttachFailureReason != nil || receiverAttachFailureReason != nil {
+        if hasCreateFailure {
             return .error
         }
         return .warning
@@ -302,7 +303,7 @@ public extension NDIWizardDiscoveryServerRow {
         case .connected:
             return "CONNECTED"
         case .warning:
-            if listenerLifecycleState == "attaching" || listenerLifecycleState == "attached_waiting" {
+            if hasAttachedListener || hasConnectedListener {
                 return "WAITING"
             }
             return "CHECK"
@@ -319,25 +320,18 @@ public extension NDIWizardDiscoveryServerRow {
         if discoveryVisualState == .connected {
             return validatedAddress.map { "Validated on \($0)." } ?? "Both listeners are connected."
         }
-        if let degradedReason, degradedReason.isEmpty == false {
-            return "\(Self.prettyLabel(from: degradedReason))."
-        }
-        if let failure = senderAttachFailureReason?.nilIfEmpty ?? receiverAttachFailureReason?.nilIfEmpty {
+        if let failure = senderAttachFailureReason?.nilIfEmpty
+            ?? receiverAttachFailureReason?.nilIfEmpty
+            ?? degradedReason?.nilIfEmpty {
             return "\(Self.prettyLabel(from: failure))."
         }
-        if senderListenerConnected != receiverListenerConnected {
-            return "Only one listener is fully connected."
+        if hasConnectedListener {
+            return "One listener is connected and the other is still catching up."
         }
-        if listenerLifecycleState == "attaching" || listenerLifecycleState == "attached_waiting" {
-            return "Listener is attached and waiting for a full connection."
+        if hasAttachedListener {
+            return "Listener exists and the SDK has not reported a connected server yet."
         }
-        if senderListenerAttached || receiverListenerAttached {
-            return "Listener is attached but not fully connected yet."
-        }
-        if validatedAddress == nil {
-            return "No listener instance is live yet."
-        }
-        return "\(discoveryLifecycleLabel)."
+        return "Server is configured, but BETR has not created a live listener yet."
     }
 
     private static func prettyLabel(from rawValue: String) -> String {

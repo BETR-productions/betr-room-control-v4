@@ -29,7 +29,7 @@ final class DiscoveryServerPresentationTests: XCTestCase {
                 host: "192.168.55.11",
                 port: 5959,
                 validatedAddress: "192.168.55.11:5959",
-                listenerLifecycleState: "connected_visible",
+                listenerLifecycleState: "connected",
                 senderListenerAttached: true,
                 senderListenerConnected: true,
                 receiverListenerAttached: true,
@@ -84,7 +84,7 @@ final class DiscoveryServerPresentationTests: XCTestCase {
         XCTAssertEqual(row.discoveryStatusWord, "WAITING")
         XCTAssertEqual(
             row.discoveryDetailText,
-            "Listener is attached and waiting for a full connection."
+            "Listener exists and the SDK has not reported a connected server yet."
         )
     }
 
@@ -109,7 +109,7 @@ final class DiscoveryServerPresentationTests: XCTestCase {
                 host: "192.168.55.11",
                 port: 5959,
                 validatedAddress: "192.168.55.11:5959",
-                listenerLifecycleState: "connected_visible",
+                listenerLifecycleState: "connected",
                 senderListenerAttached: true,
                 senderListenerConnected: true,
                 receiverListenerAttached: true,
