@@ -80,16 +80,16 @@
   - that installer package also preinstalls the root `BETRNetworkHelper` daemon in `/Library/PrivilegedHelperTools` and `/Library/LaunchDaemons` through a `postinstall` script
   - future in-app updates can continue to use the normal bridge/date-line updater path, and the app only needs to prompt again if the bundled helper changes
   - this Mac does not currently have the matching `Developer ID Installer` certificate in Keychain, so signed/notarized PKG publication is blocked until that cert is added
-- `0.9.8.91` is now the current published bridge build for the cold-start discovery bootstrap hotfix:
-  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.9.8.91`
+- `0.3.30.1` is now the current published date-line build:
+  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.3.30.1`
   - assets:
-    - `BETR-Room-Control-v0.9.8.91.zip`
-    - `BETR-Room-Control-v0.9.8.91.dmg`
+    - `BETR-Room-Control-v0.3.30.1.zip`
+    - `BETR-Room-Control-v0.3.30.1.dmg`
   - packaged validation passed with `embeddedSMAppService`, event observation, and preview transport
   - signed/notarized PKG publication is still blocked locally by the missing `Developer ID Installer` certificate
-  - the bundled `BETRCoreAgent` helper now performs a real `NDILibrary.bootstrap()` on cold start before it reports the SDK initialized
-  - this fixes the false-initialized state where remote packaged runs could show `SDK Bootstrap = uninitialized`, `SDK Path = Not reported`, and empty discovery rows even though `libndi_advanced.dylib` was embedded
-- The bridge hotfix now upgrades cleanly from the installed public `0.9.5.2`, and a staged `.3.23.2` (`0.3.23.2`) candidate now validates cleanly over the bridge when both builds carry ordered update sequences.
+  - the date-line release keeps the cold-start discovery bootstrap hotfix and the program confidence-preview recovery work
+  - publication uses explicit updater sequence `2026033008` so in-app update can advance cleanly from the bridge line
+- The date-line release now validates cleanly over the installed public `0.9.8.55`, so the updater can advance from the bridge line without returning to raw dotted version math.
 - Discovery Server operator UX now follows the same precedence as the core runtime:
   - `WAITING`, `CONNECTED`, and visible-source `PASS` state are driven from SDK listener lifecycle and actual discovery visibility only
   - the UI no longer shows or reasons about an advisory TCP state for Discovery Server health
@@ -130,10 +130,10 @@
   - the panel now surfaces when Clip Player is actually routed to an output, including `LIVE ON OUT-1` style status when active
 - Real local NDI proof, migration import, second-Mac validation, and the first updater-compatible cutover from the currently installed public app remain open.
 - Important release truth:
-  - the installed public app on this Mac is `0.9.5.2`
+  - the installed public app on this Mac is `0.9.8.55`
   - `0.9.8.50` is a bad bridge build and should not be reused
   - `0.9.8.53` is superseded because it could still replay proof-mode shutdown state across restarts
   - `0.9.8.56` is superseded because the settings NIC flow and restart recovery still drifted from the operator contract
-  - the public bridge release is now `0.9.8.91`
-  - the next date-line release may be published as `.3.23.2` and canonicalized to `0.3.23.2`
-  - the bridge release is what lets future date-line releases advance through the updater without returning to raw dotted version math
+  - the public bridge release remains `0.9.8.91`
+  - the current public date-line release is `.3.30.1`, canonicalized to `0.3.30.1`
+  - explicit updater sequence `2026033008` is what lets the date-line release advance cleanly from the bridge line
