@@ -54,6 +54,9 @@ struct GitHubReleaseSelection: Equatable, Sendable {
 }
 
 enum GitHubReleaseResolver {
+    static let releasePageSize = 100
+    static let releasePageLimit = 5
+
     static func selectLatestStableRelease(
         from releases: [GitHubReleaseRecord],
         currentTrack: RoomControlReleaseTrack
@@ -92,6 +95,32 @@ enum GitHubReleaseResolver {
             }
     }
 
+    static func fetchReleaseRecords(
+        currentTrack: RoomControlReleaseTrack,
+        session: URLSession = .shared,
+        token: String? = nil
+    ) async throws -> [GitHubReleaseRecord] {
+        let pagesToInspect = currentTrack == .legacy ? 1 : releasePageLimit
+        var aggregated: [GitHubReleaseRecord] = []
+
+        for page in 1...pagesToInspect {
+            let request = try releaseFeedRequest(page: page, token: token)
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw URLError(.badServerResponse)
+            }
+
+            let pageRecords = try JSONDecoder().decode([GitHubReleaseRecord].self, from: data)
+            aggregated.append(contentsOf: pageRecords)
+
+            if pageRecords.count < releasePageSize {
+                break
+            }
+        }
+
+        return aggregated
+    }
+
     static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
         RoomControlReleaseVersioning.compareNumericVersions(lhs, rhs)
     }
@@ -113,6 +142,20 @@ enum GitHubReleaseResolver {
         case (.none, .none):
             return compareVersions(lhs.normalizedVersion, rhs.normalizedVersion)
         }
+    }
+
+    private static func releaseFeedRequest(page: Int, token: String?) throws -> URLRequest {
+        guard let url = URL(string: "https://api.github.com/repos/\(RoomControlPublicRelease.releaseRepository)/releases?per_page=\(releasePageSize)&page=\(page)") else {
+            throw URLError(.badURL)
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
     }
 }
 
@@ -241,24 +284,11 @@ final class UpdateChecker: ObservableObject {
         Task {
             defer { isChecking = false }
 
-            guard let url = URL(string: "https://api.github.com/repos/\(Self.repo)/releases?per_page=20") else {
-                checkError = "Invalid GitHub release feed URL."
-                return
-            }
-            var request = URLRequest(url: url)
-            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            request.timeoutInterval = 15
-            if let token = Self.loadGitHubToken() {
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                    checkError = "Could not reach the BETR release feed."
-                    return
-                }
-                let releases = try JSONDecoder().decode([GitHubReleaseRecord].self, from: data)
+                let releases = try await GitHubReleaseResolver.fetchReleaseRecords(
+                    currentTrack: currentReleaseTrack,
+                    token: Self.loadGitHubToken()
+                )
                 guard let release = GitHubReleaseResolver.selectLatestStableRelease(from: releases, currentTrack: currentReleaseTrack) else {
                     checkError = "No stable release is published yet."
                     return
@@ -270,6 +300,18 @@ final class UpdateChecker: ObservableObject {
                 latestZipAPIURL = release.zipAPIURL
                 updateAvailable = isNewer(release)
             } catch {
+                if let urlError = error as? URLError {
+                    switch urlError.code {
+                    case .badURL:
+                        checkError = "Invalid GitHub release feed URL."
+                        return
+                    case .badServerResponse:
+                        checkError = "Could not reach the BETR release feed."
+                        return
+                    default:
+                        break
+                    }
+                }
                 latestVersion = nil
                 latestDownloadURL = nil
                 latestZipAPIURL = nil
