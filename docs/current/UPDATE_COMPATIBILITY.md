@@ -24,6 +24,7 @@
 - `scripts/validate-upgrade.sh` is now ported from the public v3 line so local release candidates can be checked against the installed public app before publication.
 - `scripts/release-public.sh` is now ported from the public v3 line so v4 can build, validate, and publish the same ZIP + DMG artifact shape when the line is ready, and it now auto-includes the installer PKG when a matching `Developer ID Installer` certificate is present in Keychain.
 - `UpdateChecker` is now wired back into the v4 shell/settings flow and uses the preserved public release feed.
+- `UpdateChecker` now paginates the GitHub releases API for bridge/date installs instead of relying on the first page alone, so newer date-line cuts remain visible even when GitHub orders their release objects behind newer-created bridge tags.
 
 ## Current Cutover Truth
 - On 2026-03-23, `scripts/build-app.sh --release-style --version .3.23.1 --zip --dmg --notarize --notary-profile notarytool --staple` proved the reset date-line release path, but it also confirmed that `0.3.23.1` cannot be the first updater cutover from the installed public `0.9.5.2`.
