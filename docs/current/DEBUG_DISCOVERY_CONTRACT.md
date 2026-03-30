@@ -8,6 +8,7 @@
 ## Rule
 - Default Room Control discovery UI must consume SDK-authoritative product fields only.
 - Discovery diagnostics may appear only in the explicit `DEBUG ONLY` surface.
+- Apply-card config copy must describe configured discovery state, not runtime discovery state.
 
 ## Default UI Inputs
 - `sdkBootstrapState`
@@ -31,3 +32,4 @@
 - Do not request debug discovery data during ordinary validation refresh.
 - Do not persist the `DEBUG ONLY` toggle across launches.
 - Do not treat configured endpoints as connected-server truth when the SDK has not reported a real server URL.
+- Do not use `mDNS only` or `Not connected` in the Apply card's configured discovery summary.

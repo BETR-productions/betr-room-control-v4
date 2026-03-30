@@ -2,6 +2,33 @@
 import XCTest
 
 final class RoomControlSettingsRootViewTests: XCTestCase {
+    func testConfiguredDiscoveryServerSummaryShowsNoneWhenEmpty() {
+        XCTAssertEqual(
+            RoomControlSettingsRootView.configuredDiscoveryServerSummary(
+                configuredDiscoveryServerText: ""
+            ),
+            "None"
+        )
+    }
+
+    func testConfiguredDiscoveryServerSummaryPreservesSingleEntry() {
+        XCTAssertEqual(
+            RoomControlSettingsRootView.configuredDiscoveryServerSummary(
+                configuredDiscoveryServerText: "192.168.55.11:5959"
+            ),
+            "192.168.55.11:5959"
+        )
+    }
+
+    func testConfiguredDiscoveryServerSummaryJoinsMultilineEntries() {
+        XCTAssertEqual(
+            RoomControlSettingsRootView.configuredDiscoveryServerSummary(
+                configuredDiscoveryServerText: "192.168.55.11:5959\n\nndi://192.168.55.12:5959\n"
+            ),
+            "192.168.55.11:5959, ndi://192.168.55.12:5959"
+        )
+    }
+
     func testRuntimeDiscoveryServerSummaryShowsMDNSOnlyWhenNoServerIsConfigured() {
         XCTAssertEqual(
             RoomControlSettingsRootView.runtimeDiscoveryServerSummary(

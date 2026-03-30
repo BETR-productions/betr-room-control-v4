@@ -12,6 +12,9 @@
   - `docs/current/DISCOVERY_SDK_ALIGNMENT_AUDIT.md` in the paired `betr-core-v3` worktree
 - The app now consumes a product-only discovery contract by default, with diagnostics isolated behind:
   - [DEBUG_DISCOVERY_CONTRACT.md](./DEBUG_DISCOVERY_CONTRACT.md)
+- The Apply card now uses config-only discovery wording:
+  - `Configured Discovery Server(s)`
+  - `None`
 
 ## References
 - [NDI Startup and Shutdown](https://docs.ndi.video/all/developing-with-ndi/sdk/startup-and-shutdown)
@@ -52,6 +55,7 @@
 - `activeDiscoveryServerURL` mapping uses connected URLs and runtime active-server values only.
 - `makeDiscoveryState(...)` no longer treats configured endpoints as connected-state truth.
 - The bootstrapper still uses explicit restart intent rather than ordinary refresh-driven recycle behavior.
+- The Apply card's configured discovery summary no longer uses runtime wording like `mDNS only`.
 
 ## RISK Findings
 - None identified in the current app-boundary code audit.

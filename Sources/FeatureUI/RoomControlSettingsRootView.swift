@@ -183,6 +183,16 @@ struct RoomControlSettingsRootView: View {
         return (draftHasDiscoveryServer || runtimeDiscoveryServersCount > 0) ? "Not connected" : "mDNS only"
     }
 
+    static func configuredDiscoveryServerSummary(
+        configuredDiscoveryServerText: String
+    ) -> String {
+        let entries = configuredDiscoveryServerText
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return entries.isEmpty ? "None" : entries.joined(separator: ", ")
+    }
+
     private var logsTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -918,7 +928,12 @@ struct RoomControlSettingsRootView: View {
                 )
 
                 keyValueRow("Committed NIC", store.hostValidation.committedInterfaceBSDName ?? selectedInterfaceSummary?.bsdName ?? "Not applied yet")
-                keyValueRow("Discovery Server", store.hostDraft.discoveryServersText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "mDNS only" : store.hostDraft.discoveryServersText.replacingOccurrences(of: "\n", with: ", "))
+                keyValueRow(
+                    "Configured Discovery Server(s)",
+                    Self.configuredDiscoveryServerSummary(
+                        configuredDiscoveryServerText: store.hostDraft.discoveryServersText
+                    )
+                )
                 keyValueRow("Filter", store.hostDraft.sourceFilter.nilIfEmpty ?? "None")
                 keyValueRow("Node Label", store.hostDraft.nodeLabel.nilIfEmpty ?? "BETR Room Control")
                 keyValueRow("Expected Fingerprint", store.hostValidation.expectedConfigFingerprint ?? "Pending apply")
