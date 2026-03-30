@@ -1662,7 +1662,7 @@ private struct OutputPreviewTile: View {
                 audioMuted: card.isAudioMuted,
                 leftLevel: card.liveTile.leftLevel,
                 rightLevel: card.liveTile.rightLevel,
-                inset: confidencePreviewInset
+                inset: nil
             )
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .frame(maxWidth: .infinity)
@@ -1735,57 +1735,6 @@ private struct OutputPreviewTile: View {
         }
     }
 
-    private var confidencePreviewState: OutputPreviewState {
-        card.confidencePreview?.previewState ?? .unavailable
-    }
-
-    private var confidencePreviewLabel: String {
-        guard let confidencePreview = card.confidencePreview else { return "ARMING" }
-        switch confidencePreview.mode {
-        case .pendingProgram:
-            return confidencePreview.isReady ? "LIVE" : "ARMING"
-        case .armedPreview:
-            return confidencePreview.isReady ? "PVW" : "ARMING"
-        }
-    }
-
-    private var confidencePreviewStandbyLabel: String {
-        guard let confidencePreview = card.confidencePreview else { return "NO PREVIEW" }
-        switch confidencePreview.mode {
-        case .pendingProgram:
-            return confidencePreview.isReady ? "LIVE" : "ARMING"
-        case .armedPreview:
-            return confidencePreview.isReady ? "PVW" : "ARMING"
-        }
-    }
-
-    private var confidencePreviewRenderFeed: OutputTileRenderFeed {
-        return store.previewRenderFeed(for: card.id)
-    }
-
-    private var confidencePreviewInset: AnyView? {
-        guard card.confidencePreview != nil else { return nil }
-        return AnyView(
-            LiveOutputSurfacePreview(
-                renderFeed: confidencePreviewRenderFeed,
-                previewState: confidencePreviewState,
-                surfaceLabel: confidencePreviewLabel,
-                standbyLabel: confidencePreviewStandbyLabel,
-                showsAudioMeters: true,
-                audioMuted: false,
-                leftLevel: card.confidencePreview?.leftLevel ?? 0,
-                rightLevel: card.confidencePreview?.rightLevel ?? 0,
-                inset: nil
-            )
-            .frame(width: 126, height: 72)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(BrandTokens.charcoal.opacity(0.8), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.3), radius: 6, x: 0, y: 2)
-        )
-    }
-
     private var sourceSummaryRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             sourceChip(
@@ -1796,11 +1745,9 @@ private struct OutputPreviewTile: View {
             Spacer(minLength: 8)
             if let confidencePreview = card.confidencePreview {
                 sourceChip(
-                    label: confidencePreview.mode == .pendingProgram ? "NEXT" : (confidencePreview.isReady ? "PVW" : "ARM"),
+                    label: confidencePreview.isReady ? "PVW" : "ARM",
                     value: confidencePreview.sourceName ?? "None",
-                    tint: confidencePreview.mode == .pendingProgram
-                        ? (confidencePreview.isReady ? BrandTokens.timerGreen : BrandTokens.gold)
-                        : (confidencePreview.isReady ? BrandTokens.pvwRed : BrandTokens.gold)
+                    tint: confidencePreview.isReady ? BrandTokens.pvwRed : BrandTokens.gold
                 )
             }
         }
@@ -2237,37 +2184,23 @@ private struct LiveOutputSurfacePreview: View {
         ZStack {
             OutputSurfaceMetalView(renderFeed: renderFeed)
 
-            if previewState != .live {
-                Rectangle()
-                    .fill(BrandTokens.cardBlack.opacity(0.72))
-
-                VStack(spacing: 6) {
-                    Image(systemName: previewState == .fallback ? "photo" : "play.rectangle.fill")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(previewState == .fallback ? BrandTokens.warmGrey : BrandTokens.gold)
-                    Text(previewState == .fallback ? "FALLBACK" : standbyLabel)
-                        .font(BrandTokens.mono(size: 10))
-                        .foregroundStyle(BrandTokens.offWhite)
-                }
-                .padding(12)
-            }
-
-            if previewState == .live {
-                VStack {
-                    HStack {
-                        Spacer()
-                        Text(surfaceLabel)
-                            .font(BrandTokens.mono(size: 8))
-                            .foregroundStyle(BrandTokens.offWhite)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 4)
-                            .background(Color.black.opacity(0.72))
-                            .clipShape(RoundedRectangle(cornerRadius: 5))
-                    }
+            VStack {
+                HStack {
                     Spacer()
+                    Text(previewState == .live ? surfaceLabel : (previewState == .fallback ? "FALLBACK" : standbyLabel))
+                        .font(BrandTokens.mono(size: 8))
+                        .foregroundStyle(BrandTokens.offWhite)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(
+                            (previewState == .fallback ? BrandTokens.charcoal : Color.black)
+                                .opacity(0.78)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
                 }
-                .padding(8)
+                Spacer()
             }
+            .padding(8)
 
             if showsAudioMeters {
                 HStack(spacing: 4) {

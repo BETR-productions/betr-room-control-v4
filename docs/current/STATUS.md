@@ -80,15 +80,16 @@
   - that installer package also preinstalls the root `BETRNetworkHelper` daemon in `/Library/PrivilegedHelperTools` and `/Library/LaunchDaemons` through a `postinstall` script
   - future in-app updates can continue to use the normal bridge/date-line updater path, and the app only needs to prompt again if the bundled helper changes
   - this Mac does not currently have the matching `Developer ID Installer` certificate in Keychain, so signed/notarized PKG publication is blocked until that cert is added
-- `0.3.30.3` is now the current published date-line build:
-  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.3.30.3`
+- `0.3.30.4` is now the current staged date-line build for publish:
+  - planned release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.3.30.4`
   - assets:
-    - `BETR-Room-Control-v0.3.30.3.zip`
-    - `BETR-Room-Control-v0.3.30.3.dmg`
+    - `BETR-Room-Control-v0.3.30.4.zip`
+    - `BETR-Room-Control-v0.3.30.4.dmg`
   - packaged validation passed with `embeddedSMAppService`, event observation, and preview transport
   - signed/notarized PKG publication is still blocked locally by the missing `Developer ID Installer` certificate
-  - the date-line release keeps the cold-start discovery bootstrap hotfix, the program confidence-preview recovery work, and the updater feed pagination fix
-  - publication uses explicit updater sequence `2026033011` so in-app update can advance cleanly from the bridge rescue line
+  - the staged date-line build keeps the cold-start discovery bootstrap hotfix, the updater feed pagination fix, and the live-program thumbnail/output-fallback recovery work
+  - the output card now renders one true live program surface, uses `ARM` / `PVW` on the pending row, and no longer covers a bound frame with a full standby mask
+  - publication uses explicit updater sequence `2026033012` so in-app update can advance cleanly from the bridge rescue line
 - The date-line release now validates cleanly over the installed public `0.9.8.55`, so the updater can advance from the bridge line without returning to raw dotted version math.
 - Discovery Server operator UX now follows the same precedence as the core runtime:
   - `WAITING`, `CONNECTED`, and visible-source `PASS` state are driven from SDK listener lifecycle and actual discovery visibility only
@@ -135,5 +136,5 @@
   - `0.9.8.53` is superseded because it could still replay proof-mode shutdown state across restarts
   - `0.9.8.56` is superseded because the settings NIC flow and restart recovery still drifted from the operator contract
   - the public bridge release is `0.9.8.92`
-  - the current public date-line release is `.3.30.3`, canonicalized to `0.3.30.3`
-  - explicit updater sequences `2026033009`, `2026033010`, and `2026033011` are what let the bridge rescue hand off cleanly across the date-line releases
+  - the current staged date-line release is `.3.30.4`, canonicalized to `0.3.30.4`
+  - explicit updater sequences `2026033009`, `2026033010`, `2026033011`, and `2026033012` are what let the bridge rescue hand off cleanly across the date-line releases
