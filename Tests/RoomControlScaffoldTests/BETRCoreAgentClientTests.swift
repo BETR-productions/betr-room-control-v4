@@ -36,7 +36,8 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(shellState.workspace.cards.first?.programSlotID, "S2")
         XCTAssertEqual(shellState.workspace.cards.first?.previewSlotID, "S1")
         XCTAssertTrue(shellState.workspace.cards.first?.isSoloedLocally == true)
-        XCTAssertEqual(shellState.workspace.cards.first?.armedPreviewTile?.sourceID, "ndi-presenter")
+        XCTAssertEqual(shellState.workspace.cards.first?.confidencePreview?.sourceID, "ndi-presenter")
+        XCTAssertEqual(shellState.workspace.cards.first?.confidencePreview?.mode, .armedPreview)
         XCTAssertEqual(shellState.workspace.cards.first?.slots.map(\.id), ["S1", "S2", "S3", "S4", "S5", "S6"])
         XCTAssertTrue(shellState.workspace.sources.first(where: { $0.id == "ndi-slideshow" })?.isWarm == true)
         XCTAssertEqual(shellState.workspace.agentInstanceID, "agent-workspace")
@@ -129,8 +130,42 @@ final class BETRCoreAgentClientTests: XCTestCase {
         }
 
         XCTAssertEqual(card.previewSlotID, "S1")
+        XCTAssertEqual(card.confidencePreview?.sourceID, "ndi-presenter")
+        XCTAssertEqual(card.confidencePreview?.mode, .armedPreview)
+        XCTAssertFalse(card.confidencePreview?.isReady == true)
+        XCTAssertFalse(card.statusPills.contains(.live))
+    }
+
+    func testBootstrapShellStateUsesPendingProgramConfidencePreviewBeforeCutover() async {
+        let workspace = Self.makeWorkspaceSnapshot(
+            outputs: [
+                Self.makeWorkspaceOutput(
+                    id: "OUT-1",
+                    slotAssignments: ["S1": "ndi-presenter", "S2": "ndi-slideshow"],
+                    programSlotID: "S1",
+                    previewSlotID: nil,
+                    activeSourceID: "ndi-slideshow"
+                )
+            ]
+        )
+
+        let client = BETRCoreAgentClient(
+            workspaceSnapshotProvider: { workspace },
+            validationSnapshotProvider: { Self.makeValidationSnapshot() }
+        )
+
+        let shellState = await client.bootstrapShellState(rootDirectory: "/tmp/betr-room-control-v4-tests")
+        guard let card = shellState.workspace.cards.first else {
+            return XCTFail("Expected one output card.")
+        }
+
+        XCTAssertEqual(card.programSourceID, "ndi-presenter")
+        XCTAssertEqual(card.liveTile.sourceID, "ndi-slideshow")
+        XCTAssertEqual(card.confidencePreview?.sourceID, "ndi-presenter")
+        XCTAssertEqual(card.confidencePreview?.mode, .pendingProgram)
+        XCTAssertTrue(card.confidencePreview?.isReady == true)
         XCTAssertTrue(card.statusPills.contains(.arming))
-        XCTAssertFalse(card.statusPills.contains(.pvw))
+        XCTAssertFalse(card.statusPills.contains(.live))
     }
 
     func testCurrentValidationSnapshotMapsAgentTruth() async {

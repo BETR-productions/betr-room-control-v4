@@ -1586,73 +1586,15 @@ private struct OutputPreviewTile: View {
     let shellState: FeatureShellState
     @ObservedObject var store: RoomControlWorkspaceStore
     @State private var showRemoveOutputConfirmation = false
+    @State private var showsDiagnostics = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .center, spacing: 8) {
-                    Text(card.title)
-                        .font(BrandTokens.display(size: 12, weight: .semibold))
-                        .foregroundStyle(BrandTokens.offWhite)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    listenerBadge
-                    ForEach(card.statusPills, id: \.rawValue) { pill in
-                        statusPill(pill.rawValue)
-                    }
-                }
-
-                LiveOutputSurfacePreview(
-                    renderFeed: store.programRenderFeed(for: card.id),
-                    previewState: card.liveTile.previewState,
-                    surfaceLabel: "PROGRAM",
-                    standbyLabel: programStandbyLabel,
-                    showsAudioMeters: true,
-                    audioMuted: card.isAudioMuted,
-                    leftLevel: card.liveTile.leftLevel,
-                    rightLevel: card.liveTile.rightLevel,
-                    inset: armedPreviewInset
-                )
-                .frame(width: 312, height: 176)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    sourceSummaryRow
-                    Text(card.rasterLabel)
-                        .font(BrandTokens.mono(size: 9))
-                        .foregroundStyle(BrandTokens.warmGrey)
-                        .lineLimit(1)
-                    telemetryStrip
-                }
-                .frame(width: 312, alignment: .leading)
-            }
-            .frame(width: 312, alignment: .topLeading)
-
-            OutputSlotBank(card: card, shellState: shellState, store: store)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-
-            VStack(spacing: 8) {
-                controlButton(card.isAudioMuted ? "Unmute" : "Mute") {
-                    store.toggleOutputAudioMuted(card.id)
-                }
-                controlButton(card.isSoloedLocally ? "Unsolo" : "Solo") {
-                    store.toggleOutputSoloedLocally(card.id)
-                }
-                Menu {
-                    Button("Remove Output…", role: .destructive) {
-                        showRemoveOutputConfirmation = true
-                    }
-                } label: {
-                    Label("Actions", systemImage: "ellipsis.circle")
-                        .font(BrandTokens.display(size: 11, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                }
-                .menuStyle(.button)
-                .controlSize(.small)
-            }
-            .frame(width: 108)
+        ViewThatFits(in: .horizontal) {
+            wideLayout
+            stackedLayout
         }
         .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 300, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 280, alignment: .topLeading)
         .background(BrandTokens.surfaceDark)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
@@ -1673,44 +1615,178 @@ private struct OutputPreviewTile: View {
         }
     }
 
+    private var wideLayout: some View {
+        HStack(alignment: .top, spacing: 12) {
+            mediaColumn
+                .frame(minWidth: 292, idealWidth: 344, maxWidth: 360, alignment: .topLeading)
+
+            HStack(alignment: .top, spacing: 12) {
+                OutputSlotBank(card: card, shellState: shellState, store: store)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                controlColumn
+                    .frame(width: 108)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var stackedLayout: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            mediaColumn
+            OutputSlotBank(card: card, shellState: shellState, store: store)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            controlRow
+        }
+    }
+
+    private var mediaColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(card.title)
+                    .font(BrandTokens.display(size: 12, weight: .semibold))
+                    .foregroundStyle(BrandTokens.offWhite)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                listenerBadge
+                ForEach(card.statusPills, id: \.rawValue) { pill in
+                    statusPill(pill.rawValue)
+                }
+            }
+
+            LiveOutputSurfacePreview(
+                renderFeed: store.programRenderFeed(for: card.id),
+                previewState: card.liveTile.previewState,
+                surfaceLabel: "LIVE",
+                standbyLabel: programStandbyLabel,
+                showsAudioMeters: true,
+                audioMuted: card.isAudioMuted,
+                leftLevel: card.liveTile.leftLevel,
+                rightLevel: card.liveTile.rightLevel,
+                inset: confidencePreviewInset
+            )
+            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+
+            VStack(alignment: .leading, spacing: 6) {
+                sourceSummaryRow
+                compactHealthSummary
+                Text(card.rasterLabel)
+                    .font(BrandTokens.mono(size: 9))
+                    .foregroundStyle(BrandTokens.warmGrey)
+                    .lineLimit(1)
+                diagnosticsDisclosure
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var controlColumn: some View {
+        VStack(spacing: 8) {
+            controlButton(card.isAudioMuted ? "Unmute" : "Mute") {
+                store.toggleOutputAudioMuted(card.id)
+            }
+            controlButton(card.isSoloedLocally ? "Unsolo" : "Solo") {
+                store.toggleOutputSoloedLocally(card.id)
+            }
+            Menu {
+                Button("Remove Output…", role: .destructive) {
+                    showRemoveOutputConfirmation = true
+                }
+            } label: {
+                Label("Actions", systemImage: "ellipsis.circle")
+                    .font(BrandTokens.display(size: 11, weight: .medium))
+                    .frame(maxWidth: .infinity)
+            }
+            .menuStyle(.button)
+            .controlSize(.small)
+        }
+    }
+
+    private var controlRow: some View {
+        HStack(spacing: 8) {
+            controlButton(card.isAudioMuted ? "Unmute" : "Mute") {
+                store.toggleOutputAudioMuted(card.id)
+            }
+            controlButton(card.isSoloedLocally ? "Unsolo" : "Solo") {
+                store.toggleOutputSoloedLocally(card.id)
+            }
+            Menu {
+                Button("Remove Output…", role: .destructive) {
+                    showRemoveOutputConfirmation = true
+                }
+            } label: {
+                Label("Actions", systemImage: "ellipsis.circle")
+                    .font(BrandTokens.display(size: 11, weight: .medium))
+                    .frame(maxWidth: .infinity)
+            }
+            .menuStyle(.button)
+            .controlSize(.small)
+        }
+    }
+
     private var programStandbyLabel: String {
         switch card.liveTile.previewState {
         case .live:
-            return "PROGRAM"
+            return "LIVE"
         case .fallback:
             return "FALLBACK"
         case .unavailable:
-            return "NO PROGRAM"
+            return card.confidencePreview?.mode == .pendingProgram ? "ARMING" : "NO PROGRAM"
         }
     }
 
-    private var previewSurfacePreviewState: OutputPreviewState {
-        if store.previewRenderFeed(for: card.id).hasSurface() == false {
+    private var confidencePreviewState: OutputPreviewState {
+        guard let confidencePreview = card.confidencePreview else {
             return .unavailable
         }
-        return .live
+
+        switch confidencePreview.mode {
+        case .pendingProgram:
+            return card.liveTile.previewState
+        case .armedPreview:
+            return store.previewRenderFeed(for: card.id).hasSurface() ? .live : .unavailable
+        }
     }
 
-    private var previewSurfaceLabel: String {
-        card.armedPreviewTile?.isReady == true ? "PVW" : "ARMING"
+    private var confidencePreviewLabel: String {
+        guard let confidencePreview = card.confidencePreview else { return "ARMING" }
+        switch confidencePreview.mode {
+        case .pendingProgram:
+            return confidencePreview.isReady ? "LIVE" : "ARMING"
+        case .armedPreview:
+            return confidencePreview.isReady ? "PVW" : "ARMING"
+        }
     }
 
-    private var previewStandbyLabel: String {
-        card.previewSlotID == nil ? "NO PREVIEW" : (card.armedPreviewTile?.isReady == true ? "PVW" : "ARMING")
+    private var confidencePreviewStandbyLabel: String {
+        guard let confidencePreview = card.confidencePreview else { return "NO PREVIEW" }
+        switch confidencePreview.mode {
+        case .pendingProgram:
+            return confidencePreview.isReady ? "LIVE" : "ARMING"
+        case .armedPreview:
+            return confidencePreview.isReady ? "PVW" : "ARMING"
+        }
     }
 
-    private var armedPreviewInset: AnyView? {
-        guard card.armedPreviewTile != nil else { return nil }
+    private var confidencePreviewRenderFeed: OutputTileRenderFeed {
+        if card.confidencePreview?.mode == .pendingProgram {
+            return store.programRenderFeed(for: card.id)
+        }
+        return store.previewRenderFeed(for: card.id)
+    }
+
+    private var confidencePreviewInset: AnyView? {
+        guard card.confidencePreview != nil else { return nil }
         return AnyView(
             LiveOutputSurfacePreview(
-                renderFeed: store.previewRenderFeed(for: card.id),
-                previewState: previewSurfacePreviewState,
-                surfaceLabel: previewSurfaceLabel,
-                standbyLabel: previewStandbyLabel,
-                showsAudioMeters: false,
-                audioMuted: true,
-                leftLevel: 0,
-                rightLevel: 0,
+                renderFeed: confidencePreviewRenderFeed,
+                previewState: confidencePreviewState,
+                surfaceLabel: confidencePreviewLabel,
+                standbyLabel: confidencePreviewStandbyLabel,
+                showsAudioMeters: true,
+                audioMuted: card.isAudioMuted,
+                leftLevel: card.liveTile.leftLevel,
+                rightLevel: card.liveTile.rightLevel,
                 inset: nil
             )
             .frame(width: 126, height: 72)
@@ -1724,14 +1800,32 @@ private struct OutputPreviewTile: View {
 
     private var sourceSummaryRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            sourceChip(label: "PGM", value: card.programSourceName ?? "None", tint: card.liveTile.previewState == .live ? BrandTokens.pgnGreen : BrandTokens.charcoal)
-            Spacer(minLength: 8)
             sourceChip(
-                label: card.statusPills.contains(.pvw) ? "PVW" : "ARMING",
-                value: card.previewSourceName ?? "None",
-                tint: card.statusPills.contains(.pvw) ? BrandTokens.pvwRed : (card.previewSourceID == nil ? BrandTokens.charcoal : BrandTokens.gold)
+                label: "LIVE",
+                value: liveSourceName,
+                tint: card.liveTile.previewState == .live ? BrandTokens.pgnGreen : BrandTokens.charcoal
             )
+            Spacer(minLength: 8)
+            if let confidencePreview = card.confidencePreview {
+                sourceChip(
+                    label: confidencePreview.mode == .pendingProgram ? "NEXT" : (confidencePreview.isReady ? "PVW" : "ARM"),
+                    value: confidencePreview.sourceName ?? "None",
+                    tint: confidencePreview.mode == .pendingProgram
+                        ? (confidencePreview.isReady ? BrandTokens.timerGreen : BrandTokens.gold)
+                        : (confidencePreview.isReady ? BrandTokens.pvwRed : BrandTokens.gold)
+                )
+            }
         }
+    }
+
+    private var liveSourceName: String {
+        if card.liveTile.previewState == .fallback {
+            return "Fallback"
+        }
+        guard let liveSourceID = card.liveTile.sourceID else {
+            return "None"
+        }
+        return shellState.workspace.sources.first(where: { $0.id == liveSourceID })?.name ?? liveSourceID
     }
 
     private func sourceChip(label: String, value: String, tint: Color) -> some View {
@@ -1748,6 +1842,126 @@ private struct OutputPreviewTile: View {
         .padding(.vertical, 4)
         .background(tint.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 5))
+    }
+
+    private var compactHealthSummary: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            healthSummaryRow(
+                label: "INPUT",
+                text: inputHealthSummaryText,
+                tint: inputHealthSummaryTint
+            )
+            healthSummaryRow(
+                label: "OUTPUT",
+                text: outputHealthSummaryText,
+                tint: outputHealthSummaryTint
+            )
+        }
+    }
+
+    private func healthSummaryRow(label: String, text: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            sectionBadge(label, tint: tint)
+            Text(text)
+                .font(BrandTokens.display(size: 10, weight: .medium))
+                .foregroundStyle(BrandTokens.offWhite)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    private var telemetrySourceID: String? {
+        if card.confidencePreview?.mode == .pendingProgram {
+            return card.programSourceID
+        }
+        return card.liveTile.sourceID ?? card.programSourceID ?? card.previewSourceID
+    }
+
+    private var telemetrySourceName: String {
+        if card.confidencePreview?.mode == .pendingProgram {
+            return card.confidencePreview?.sourceName ?? card.programSourceName ?? "None"
+        }
+        return liveSourceName
+    }
+
+    private var inputHealthSummaryText: String {
+        guard let sourceID = telemetrySourceID,
+              let telemetry = store.hostValidation.receiverTelemetry(for: sourceID) else {
+            return "\(telemetrySourceName) • \(sourceReadinessLabel(for: telemetrySourceID))"
+        }
+
+        let sync = inputSyncLabel(for: telemetry)
+        let latency = inputLatencyLabel(for: telemetry)
+        return "\(telemetry.sourceName) • \(sync) • \(latency)"
+    }
+
+    private var inputHealthSummaryTint: Color {
+        guard let sourceID = telemetrySourceID,
+              let telemetry = store.hostValidation.receiverTelemetry(for: sourceID) else {
+            return sourceReadinessTint(for: telemetrySourceID)
+        }
+        return inputSyncTint(for: telemetry)
+    }
+
+    private var outputHealthSummaryText: String {
+        guard let telemetry = store.hostValidation.outputTelemetry(for: card.id) else {
+            return "Sender telemetry not reported yet."
+        }
+
+        let routeState: String
+        if card.statusPills.contains(.fallback) {
+            routeState = "Fallback on air"
+        } else if card.statusPills.contains(.arming) {
+            routeState = "Switch arming"
+        } else if card.statusPills.contains(.live) {
+            routeState = "Live"
+        } else if card.statusPills.contains(.error) {
+            routeState = "Needs attention"
+        } else {
+            routeState = "Idle"
+        }
+
+        let listenerLabel = telemetry.senderConnectionCount == 1
+            ? "1 listener"
+            : "\(telemetry.senderConnectionCount) listeners"
+        let audioLabel: String
+        switch card.liveTile.audioPresenceState {
+        case .live:
+            audioLabel = card.isAudioMuted ? "Muted" : "Audio live"
+        case .muted:
+            audioLabel = "Muted"
+        case .silent:
+            audioLabel = "Silent"
+        }
+
+        return "\(routeState) • \(listenerLabel) • \(audioLabel)"
+    }
+
+    private var outputHealthSummaryTint: Color {
+        if card.statusPills.contains(.error) {
+            return BrandTokens.red
+        }
+        if card.statusPills.contains(.arming) {
+            return BrandTokens.gold
+        }
+        if card.statusPills.contains(.fallback) {
+            return BrandTokens.charcoal
+        }
+        return BrandTokens.timerGreen
+    }
+
+    private var diagnosticsDisclosure: some View {
+        DisclosureGroup(isExpanded: $showsDiagnostics) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                telemetryStrip
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } label: {
+            Text("Details")
+                .font(BrandTokens.display(size: 10, weight: .semibold))
+                .foregroundStyle(BrandTokens.warmGrey)
+        }
     }
 
     private var listenerBadge: some View {
@@ -1768,17 +1982,17 @@ private struct OutputPreviewTile: View {
     private func statusPill(_ label: String) -> some View {
         let tint: Color
         switch label {
+        case "LIVE", "AUDIO":
+            tint = BrandTokens.pgnGreen
         case "PVW":
             tint = BrandTokens.pvwRed
-        case "PGM", "AUDIO":
-            tint = BrandTokens.pgnGreen
         case "MUTED":
             tint = BrandTokens.timerYellow
         case "SOLO":
             tint = Color(hex: 0x2962D9)
         case "FALLBACK", "NO PREVIEW":
             tint = BrandTokens.charcoal
-        case "DEGRADED":
+        case "DEGRADED", "ERROR":
             tint = BrandTokens.red
         case "ARMING":
             tint = BrandTokens.gold
@@ -1798,18 +2012,18 @@ private struct OutputPreviewTile: View {
     private var telemetryStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
             receiverTelemetryRow(
-                sectionLabel: "IN PGM",
-                sourceID: card.programSourceID,
-                fallbackSourceName: card.programSourceName ?? "None",
-                tint: BrandTokens.pgnGreen
+                sectionLabel: card.confidencePreview?.mode == .pendingProgram ? "IN NEXT" : "IN LIVE",
+                sourceID: telemetrySourceID,
+                fallbackSourceName: telemetrySourceName,
+                tint: card.confidencePreview?.mode == .pendingProgram ? BrandTokens.gold : BrandTokens.pgnGreen
             )
 
-            if card.previewSlotID != nil {
+            if card.confidencePreview?.mode == .armedPreview {
                 receiverTelemetryRow(
-                    sectionLabel: card.statusPills.contains(.pvw) ? "IN PVW" : "IN ARM",
+                    sectionLabel: card.confidencePreview?.isReady == true ? "IN PVW" : "IN ARM",
                     sourceID: card.previewSourceID,
                     fallbackSourceName: card.previewSourceName ?? "None",
-                    tint: card.statusPills.contains(.pvw) ? BrandTokens.pvwRed : BrandTokens.gold
+                    tint: card.confidencePreview?.isReady == true ? BrandTokens.pvwRed : BrandTokens.gold
                 )
             }
 
@@ -2009,18 +2223,12 @@ private struct OutputSlotBank: View {
     @ObservedObject var store: RoomControlWorkspaceStore
 
     var body: some View {
-        VStack(spacing: 8) {
-            ForEach(Array(OutputSlotRowLayout.rows(card.slots).enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 8) {
-                    ForEach(row) { slot in
-                        OutputSlotCell(card: card, slot: slot, shellState: shellState, store: store)
-                            .frame(minWidth: 108, maxWidth: .infinity)
-                    }
-                    ForEach(row.count..<OutputSlotRowLayout.defaultColumnCount, id: \.self) { _ in
-                        Color.clear
-                            .frame(maxWidth: .infinity)
-                    }
-                }
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 108, maximum: 180), spacing: 8)],
+            spacing: 8
+        ) {
+            ForEach(card.slots) { slot in
+                OutputSlotCell(card: card, slot: slot, shellState: shellState, store: store)
             }
         }
     }
@@ -2292,23 +2500,6 @@ private struct OutputMeterBar: View {
             }
         }
         .frame(width: 8)
-    }
-}
-
-private enum OutputSlotRowLayout {
-    static let defaultColumnCount = 3
-
-    static func rows<T>(_ items: [T], maxColumns: Int = defaultColumnCount) -> [[T]] {
-        guard maxColumns > 0 else { return [items] }
-
-        var rows: [[T]] = []
-        var index = 0
-        while index < items.count {
-            let endIndex = min(index + maxColumns, items.count)
-            rows.append(Array(items[index..<endIndex]))
-            index = endIndex
-        }
-        return rows
     }
 }
 

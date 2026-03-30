@@ -8,6 +8,10 @@
 ## Rules
 - The app consumes output-thumbnail audio state from the helper-owned output live-tile contract only.
 - `audioPresenceState`, `leftLevel`, and `rightLevel` on output live-tile models represent the audio actually being published by that output.
+- The app treats the local confidence thumbnail as a separate UI surface from the main live tile:
+  - pending-program selection takes precedence over an armed preview slot
+  - pending-program state is `ARMING` until the selected source becomes the live source
+  - the app does not invent readiness from timers, transport probes, or non-SDK polling
 - Output-thumbnail meters must not be synthesized from:
   - source readiness
   - receiver telemetry
@@ -19,6 +23,10 @@
 ## UI Meaning
 - `LIVE` tile image: current output image.
 - Meter bars on that tile: current output audio levels after mute/silence handling.
+- Local confidence thumbnail:
+  - shows the operator's current next-action context
+  - uses live output meters so the meter truth stays publish-authoritative
+  - must not disappear just because a pending routed source has not produced its first preview frame yet
 - `muted`: output is publishing muted audio.
 - `silent`: output is publishing silence or has no live program audio.
 

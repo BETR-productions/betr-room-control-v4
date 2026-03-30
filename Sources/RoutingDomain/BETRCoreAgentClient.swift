@@ -743,57 +743,32 @@ public actor BETRCoreAgentClient {
 
         var card = cards[index]
         let sourceStateByID = Dictionary(uniqueKeysWithValues: shellState.workspace.sources.map { ($0.id, $0) })
+        let programSourceIsWarm = card.programSourceID.flatMap { sourceStateByID[$0]?.isWarm } ?? false
         let previewSourceIsWarm = card.previewSourceID.flatMap { sourceStateByID[$0]?.isWarm } ?? false
-        let previewSourceIsWarming = card.previewSourceID.flatMap { sourceStateByID[$0]?.isWarming } ?? false
         card.liveTile = OutputLiveTileModel(
+            sourceID: event.snapshot.sourceID,
             previewState: event.snapshot.fallbackActive ? .fallback : event.snapshot.previewState.roomControlPreviewState,
             audioPresenceState: event.snapshot.audioPresenceState.roomControlAudioPresenceState,
             leftLevel: event.snapshot.leftLevel,
             rightLevel: event.snapshot.rightLevel
         )
         card.isAudioMuted = event.snapshot.audioMuted
+        card.confidencePreview = Self.makeConfidencePreview(
+            liveSourceID: event.snapshot.sourceID,
+            programSourceID: card.programSourceID,
+            programSourceName: card.programSourceName,
+            programSourceIsWarm: programSourceIsWarm,
+            previewSourceID: card.previewSourceID,
+            previewSourceName: card.previewSourceName,
+            previewSourceIsWarm: previewSourceIsWarm
+        )
         card.statusPills = Self.makeStatusPills(
-            from: BETRCoreWorkspaceOutputSnapshot(
-                id: card.id,
-                title: card.title,
-                rasterLabel: card.rasterLabel,
-                listenerCount: card.listenerCount,
-                slots: card.slots.map {
-                    BETRCoreOutputSlotSnapshot(
-                        outputID: card.id,
-                        slotID: $0.id,
-                        label: $0.label,
-                        sourceID: $0.sourceID
-                    )
-                },
-                programSlotID: card.programSlotID,
-                previewSlotID: card.previewSlotID,
-                isAudioMuted: event.snapshot.audioMuted,
-                isSoloedLocally: card.isSoloedLocally,
-                senderReady: !event.snapshot.fallbackActive,
-                fallbackActive: event.snapshot.fallbackActive,
-                liveTile: BETRCoreWorkspaceLiveTileSnapshot(
-                    outputID: event.outputID,
-                    sourceID: event.snapshot.sourceID,
-                    fallbackActive: event.snapshot.fallbackActive,
-                    audioMuted: event.snapshot.audioMuted,
-                    audioPresenceState: event.snapshot.audioPresenceState,
-                    leftLevel: event.snapshot.leftLevel,
-                    rightLevel: event.snapshot.rightLevel
-                ),
-                armedPreviewTile: card.armedPreviewTile.map {
-                    BETRCoreWorkspaceArmedPreviewTileSnapshot(
-                        outputID: event.outputID,
-                        sourceID: $0.sourceID,
-                        ready: $0.isReady,
-                        sourceName: $0.sourceName
-                    )
-                }
-            ),
-            previewSourceIsWarm: previewSourceIsWarm,
-            previewSourceIsWarming: previewSourceIsWarming,
-            hasPreview: card.previewSlotID != nil,
-            hasProgram: card.programSlotID != nil
+            livePreviewState: card.liveTile.previewState,
+            liveSourceID: event.snapshot.sourceID,
+            desiredProgramSourceID: card.programSourceID,
+            senderReady: !event.snapshot.fallbackActive,
+            audioPresenceState: card.liveTile.audioPresenceState,
+            isSoloedLocally: card.isSoloedLocally
         )
         cards[index] = card
 
@@ -816,9 +791,17 @@ public actor BETRCoreAgentClient {
         let sourceNameByID = Dictionary(uniqueKeysWithValues: workspace.sources.map { ($0.id, $0.name) })
         let sourceByID = Dictionary(uniqueKeysWithValues: workspace.sources.map { ($0.id, $0) })
         let cards = workspace.outputs.map { output in
+            let programSourceID = output.programSlotID.flatMap { slotID(for: $0, in: output) }
             let previewSourceID = output.previewSlotID.flatMap { slotID(for: $0, in: output) }
+            let programSourceIsWarm = programSourceID.flatMap { sourceByID[$0]?.readiness?.warm } ?? false
             let previewSourceIsWarm = previewSourceID.flatMap { sourceByID[$0]?.readiness?.warm } ?? false
-            let previewSourceIsWarming = previewSourceID.flatMap { sourceByID[$0]?.readiness?.warming } ?? false
+            let liveTile = OutputLiveTileModel(
+                sourceID: output.liveTile.sourceID,
+                previewState: output.liveTile.fallbackActive ? .fallback : (output.liveTile.sourceID == nil ? .unavailable : .live),
+                audioPresenceState: Self.makeAudioPresenceState(from: output.liveTile),
+                leftLevel: output.liveTile.leftLevel,
+                rightLevel: output.liveTile.rightLevel
+            )
             let slots = output.slots.map { slot in
                 RoomControlOutputSlotState(
                     id: slot.slotID,
@@ -845,25 +828,23 @@ public actor BETRCoreAgentClient {
                 isAudioMuted: output.isAudioMuted,
                 isSoloedLocally: output.isSoloedLocally,
                 statusPills: Self.makeStatusPills(
-                    from: output,
-                    previewSourceIsWarm: previewSourceIsWarm,
-                    previewSourceIsWarming: previewSourceIsWarming,
-                    hasPreview: output.previewSlotID != nil,
-                    hasProgram: output.programSlotID != nil
+                    livePreviewState: liveTile.previewState,
+                    liveSourceID: output.liveTile.sourceID,
+                    desiredProgramSourceID: programSourceID,
+                    senderReady: output.senderReady,
+                    audioPresenceState: liveTile.audioPresenceState,
+                    isSoloedLocally: output.isSoloedLocally
                 ),
-                liveTile: OutputLiveTileModel(
-                    previewState: output.liveTile.fallbackActive ? .fallback : (output.liveTile.sourceID == nil ? .unavailable : .live),
-                    audioPresenceState: Self.makeAudioPresenceState(from: output.liveTile),
-                    leftLevel: output.liveTile.leftLevel,
-                    rightLevel: output.liveTile.rightLevel
-                ),
-                armedPreviewTile: output.armedPreviewTile.map {
-                    OutputArmedPreviewTileModel(
-                        sourceID: $0.sourceID,
-                        sourceName: $0.sourceName,
-                        isReady: $0.ready
-                    )
-                }
+                liveTile: liveTile,
+                confidencePreview: Self.makeConfidencePreview(
+                    liveSourceID: output.liveTile.sourceID,
+                    programSourceID: programSourceID,
+                    programSourceName: programSourceID.flatMap { sourceNameByID[$0] },
+                    programSourceIsWarm: programSourceIsWarm,
+                    previewSourceID: previewSourceID,
+                    previewSourceName: previewSourceID.flatMap { sourceNameByID[$0] },
+                    previewSourceIsWarm: previewSourceIsWarm
+                )
             )
         }
 
@@ -959,9 +940,12 @@ public actor BETRCoreAgentClient {
         let proofOutput = validation?.proofOutput
         let activeSourceState = validation?.sourceStates.first { $0.id == validation?.programSourceID }
         let previewSourceState = validation?.sourceStates.first { $0.id == validation?.previewSourceID }
+        let liveSourceID = proofOutput?.activeSourceID
+        let programSourceID = validation?.programSourceID
         let previewSourceIsWarm = previewSourceState?.warm ?? false
-        let previewSourceIsWarming = previewSourceState?.warming ?? false
+        let programSourceIsWarm = activeSourceState?.warm ?? false
         let liveTile = OutputLiveTileModel(
+            sourceID: liveSourceID,
             previewState: Self.makePreviewState(from: proofOutput),
             audioPresenceState: Self.makeProofAudioPresenceState(
                 proofOutput: proofOutput,
@@ -970,13 +954,6 @@ public actor BETRCoreAgentClient {
             leftLevel: 0,
             rightLevel: 0
         )
-        let armedPreviewTile = validation?.previewSourceID.map { previewSourceID in
-            OutputArmedPreviewTileModel(
-                sourceID: previewSourceID,
-                sourceName: sourceNameByID[previewSourceID],
-                isReady: previewSourceState?.warm ?? false
-            )
-        }
         let card = RoomControlOutputCardState(
             id: outputID,
             title: outputTitle,
@@ -985,16 +962,24 @@ public actor BETRCoreAgentClient {
             slots: slots,
             programSlotID: validation?.programSlotID ?? slots.first(where: \.isProgram)?.id,
             previewSlotID: validation?.previewSlotID ?? slots.first(where: \.isPreview)?.id,
-            statusPills: Self.makeProofStatusPills(
-                proofOutput: proofOutput,
-                previewSourceIsWarm: previewSourceIsWarm,
-                previewSourceIsWarming: previewSourceIsWarming,
-                hasPreview: slots.contains(where: \.isPreview),
-                hasProgram: slots.contains(where: \.isProgram),
-                audioPresenceState: liveTile.audioPresenceState
+            statusPills: Self.makeStatusPills(
+                livePreviewState: liveTile.previewState,
+                liveSourceID: liveSourceID,
+                desiredProgramSourceID: programSourceID,
+                senderReady: proofOutput?.senderReady ?? false,
+                audioPresenceState: liveTile.audioPresenceState,
+                isSoloedLocally: false
             ),
             liveTile: liveTile,
-            armedPreviewTile: armedPreviewTile
+            confidencePreview: Self.makeConfidencePreview(
+                liveSourceID: liveSourceID,
+                programSourceID: programSourceID,
+                programSourceName: programSourceID.flatMap { sourceNameByID[$0] },
+                programSourceIsWarm: programSourceIsWarm,
+                previewSourceID: validation?.previewSourceID,
+                previewSourceName: validation?.previewSourceID.flatMap { sourceNameByID[$0] },
+                previewSourceIsWarm: previewSourceIsWarm
+            )
         )
 
         let sources = sourceRecords.map { record in
@@ -1128,6 +1113,36 @@ public actor BETRCoreAgentClient {
         return proofOutput.activeSourceID == nil ? .unavailable : .live
     }
 
+    private static func makeConfidencePreview(
+        liveSourceID: String?,
+        programSourceID: String?,
+        programSourceName: String?,
+        programSourceIsWarm: Bool,
+        previewSourceID: String?,
+        previewSourceName: String?,
+        previewSourceIsWarm: Bool
+    ) -> OutputConfidencePreviewModel? {
+        if let programSourceID, programSourceID != liveSourceID {
+            return OutputConfidencePreviewModel(
+                sourceID: programSourceID,
+                sourceName: programSourceName,
+                mode: .pendingProgram,
+                isReady: programSourceIsWarm
+            )
+        }
+
+        if let previewSourceID {
+            return OutputConfidencePreviewModel(
+                sourceID: previewSourceID,
+                sourceName: previewSourceName,
+                mode: .armedPreview,
+                isReady: previewSourceIsWarm
+            )
+        }
+
+        return nil
+    }
+
     private static func makeProofAudioPresenceState(
         proofOutput: BETRCoreProofOutputSnapshot?,
         activeSourceState: BETRCoreSourceWarmStateSnapshot?
@@ -1149,72 +1164,63 @@ public actor BETRCoreAgentClient {
         }
     }
 
-    private static func makeProofStatusPills(
-        proofOutput: BETRCoreProofOutputSnapshot?,
-        previewSourceIsWarm: Bool,
-        previewSourceIsWarming: Bool,
-        hasPreview: Bool,
-        hasProgram: Bool,
-        audioPresenceState: RoomControlUIContracts.OutputAudioPresenceState,
-        isSoloedLocally: Bool = false
-    ) -> [OutputStatusPill] {
-        var pills: [OutputStatusPill] = []
-        if previewSourceIsWarm {
-            pills.append(.pvw)
-        } else if hasPreview || previewSourceIsWarming {
-            pills.append(.arming)
+    private static func makePrimaryRoutePill(
+        livePreviewState: OutputPreviewState,
+        liveSourceID: String?,
+        desiredProgramSourceID: String?,
+        senderReady: Bool
+    ) -> OutputStatusPill? {
+        if livePreviewState == .fallback {
+            return .fallback
         }
-        if hasProgram {
-            pills.append(.pgm)
+
+        if let desiredProgramSourceID {
+            if livePreviewState == .live, liveSourceID == desiredProgramSourceID {
+                return .live
+            }
+            return .arming
         }
-        if audioPresenceState == .live {
-            pills.append(.audio)
+
+        if livePreviewState == .live, liveSourceID != nil {
+            return .live
         }
-        if proofOutput?.fallbackActive == true {
-            pills.append(.fallback)
+
+        if liveSourceID != nil, senderReady == false {
+            return .error
         }
-        if isSoloedLocally {
-            pills.append(.solo)
-        }
-        if proofOutput?.senderReady == false {
-            pills.append(.degraded)
-        }
-        return pills
+
+        return nil
     }
 
     private static func makeStatusPills(
-        from output: BETRCoreWorkspaceOutputSnapshot,
-        previewSourceIsWarm: Bool,
-        previewSourceIsWarming: Bool,
-        hasPreview: Bool,
-        hasProgram: Bool
+        livePreviewState: OutputPreviewState,
+        liveSourceID: String?,
+        desiredProgramSourceID: String?,
+        senderReady: Bool,
+        audioPresenceState: RoomControlUIContracts.OutputAudioPresenceState,
+        isSoloedLocally: Bool
     ) -> [OutputStatusPill] {
         var pills: [OutputStatusPill] = []
-        if previewSourceIsWarm {
-            pills.append(.pvw)
-        } else if hasPreview || previewSourceIsWarming {
-            pills.append(.arming)
+
+        if let primaryPill = makePrimaryRoutePill(
+            livePreviewState: livePreviewState,
+            liveSourceID: liveSourceID,
+            desiredProgramSourceID: desiredProgramSourceID,
+            senderReady: senderReady
+        ) {
+            pills.append(primaryPill)
         }
-        if hasProgram {
-            pills.append(.pgm)
-        }
-        switch output.liveTile.audioPresenceState {
-        case .live:
+
+        if audioPresenceState == .live {
             pills.append(.audio)
-        case .muted:
+        } else if audioPresenceState == .muted {
             pills.append(.muted)
-        case .silent:
-            break
         }
-        if output.fallbackActive {
-            pills.append(.fallback)
-        }
-        if output.isSoloedLocally {
+
+        if isSoloedLocally {
             pills.append(.solo)
         }
-        if output.senderReady == false {
-            pills.append(.degraded)
-        }
+
         return pills
     }
 

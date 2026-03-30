@@ -15,6 +15,7 @@ public enum OutputAudioPresenceState: String, Sendable, Equatable {
 }
 
 public enum OutputStatusPill: String, Sendable, Equatable, CaseIterable, Identifiable {
+    case live = "LIVE"
     case pvw = "PVW"
     case pgm = "PGM"
     case audio = "AUDIO"
@@ -23,11 +24,18 @@ public enum OutputStatusPill: String, Sendable, Equatable, CaseIterable, Identif
     case fallback = "FALLBACK"
     case degraded = "DEGRADED"
     case arming = "ARMING"
+    case error = "ERROR"
 
     public var id: String { rawValue }
 }
 
+public enum OutputConfidencePreviewMode: String, Sendable, Equatable {
+    case pendingProgram
+    case armedPreview
+}
+
 public struct OutputLiveTileModel: Sendable, Equatable {
+    public let sourceID: String?
     public let previewState: OutputPreviewState
     // These fields represent the audio currently published by the output live
     // tile, not selected-preview audio and not source-readiness telemetry.
@@ -36,11 +44,13 @@ public struct OutputLiveTileModel: Sendable, Equatable {
     public let rightLevel: Double
 
     public init(
+        sourceID: String? = nil,
         previewState: OutputPreviewState = .unavailable,
         audioPresenceState: OutputAudioPresenceState = .silent,
         leftLevel: Double = 0,
         rightLevel: Double = 0
     ) {
+        self.sourceID = sourceID
         self.previewState = previewState
         self.audioPresenceState = audioPresenceState
         self.leftLevel = leftLevel
@@ -48,18 +58,21 @@ public struct OutputLiveTileModel: Sendable, Equatable {
     }
 }
 
-public struct OutputArmedPreviewTileModel: Sendable, Equatable {
+public struct OutputConfidencePreviewModel: Sendable, Equatable {
     public let sourceID: String?
     public let sourceName: String?
+    public let mode: OutputConfidencePreviewMode
     public let isReady: Bool
 
     public init(
         sourceID: String? = nil,
         sourceName: String? = nil,
+        mode: OutputConfidencePreviewMode = .armedPreview,
         isReady: Bool = false
     ) {
         self.sourceID = sourceID
         self.sourceName = sourceName
+        self.mode = mode
         self.isReady = isReady
     }
 }
@@ -104,7 +117,7 @@ public struct RoomControlOutputCardState: Sendable, Equatable, Identifiable {
     public var isSoloedLocally: Bool
     public var statusPills: [OutputStatusPill]
     public var liveTile: OutputLiveTileModel
-    public var armedPreviewTile: OutputArmedPreviewTileModel?
+    public var confidencePreview: OutputConfidencePreviewModel?
 
     public init(
         id: String,
@@ -118,7 +131,7 @@ public struct RoomControlOutputCardState: Sendable, Equatable, Identifiable {
         isSoloedLocally: Bool = false,
         statusPills: [OutputStatusPill] = [],
         liveTile: OutputLiveTileModel = OutputLiveTileModel(),
-        armedPreviewTile: OutputArmedPreviewTileModel? = nil
+        confidencePreview: OutputConfidencePreviewModel? = nil
     ) {
         self.id = id
         self.title = title
@@ -131,7 +144,7 @@ public struct RoomControlOutputCardState: Sendable, Equatable, Identifiable {
         self.isSoloedLocally = isSoloedLocally
         self.statusPills = statusPills
         self.liveTile = liveTile
-        self.armedPreviewTile = armedPreviewTile
+        self.confidencePreview = confidencePreview
     }
 }
 
