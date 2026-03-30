@@ -80,15 +80,15 @@
   - that installer package also preinstalls the root `BETRNetworkHelper` daemon in `/Library/PrivilegedHelperTools` and `/Library/LaunchDaemons` through a `postinstall` script
   - future in-app updates can continue to use the normal bridge/date-line updater path, and the app only needs to prompt again if the bundled helper changes
   - this Mac does not currently have the matching `Developer ID Installer` certificate in Keychain, so signed/notarized PKG publication is blocked until that cert is added
-- `0.9.8.89` is now the current published bridge build for the Discovery-7E control-plane purity cleanup:
-  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.9.8.89`
+- `0.9.8.90` is now the current published bridge build for the receive/output audio-sync guardrail cleanup:
+  - release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.9.8.90`
   - assets:
-    - `BETR-Room-Control-v0.9.8.89.zip`
-    - `BETR-Room-Control-v0.9.8.89.dmg`
+    - `BETR-Room-Control-v0.9.8.90.zip`
+    - `BETR-Room-Control-v0.9.8.90.dmg`
   - packaged validation passed with `embeddedSMAppService`, event observation, and preview transport
   - signed/notarized PKG publication is still blocked locally by the missing `Developer ID Installer` certificate
-  - the Discovery-7 bootstrap/runtime cleanup now keeps the helper-owned control-plane reads pure after startup and leaves the shared host snapshot free of dead discovery-listener flags
-  - the operator-facing runtime/config discovery wording remains separated: runtime cards carry SDK truth while config cards stay draft-only
+  - the receive/output path now records and tests the frame-sync audio authority rules explicitly
+  - output live-tile meters remain tied to the audio actually published by each output after mute/silence handling
 - The bridge hotfix now upgrades cleanly from the installed public `0.9.5.2`, and a staged `.3.23.2` (`0.3.23.2`) candidate now validates cleanly over the bridge when both builds carry ordered update sequences.
 - Discovery Server operator UX now follows the same precedence as the core runtime:
   - `WAITING`, `CONNECTED`, and visible-source `PASS` state are driven from SDK listener lifecycle and actual discovery visibility only
