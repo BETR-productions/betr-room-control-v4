@@ -761,7 +761,9 @@ public actor BETRCoreAgentClient {
             previewState: event.snapshot.fallbackActive ? .fallback : event.snapshot.previewState.roomControlPreviewState,
             audioPresenceState: event.snapshot.audioPresenceState.roomControlAudioPresenceState,
             leftLevel: event.snapshot.leftLevel,
-            rightLevel: event.snapshot.rightLevel
+            rightLevel: event.snapshot.rightLevel,
+            playoutFaultStageID: event.snapshot.lastPlayoutFaultStage?.rawValue,
+            lastSuccessfulProgramSurfaceSequence: event.snapshot.lastSuccessfulProgramSurfaceSequence
         )
         card.isAudioMuted = event.snapshot.audioMuted
         card.confidencePreview = Self.makeConfidencePreview(
@@ -906,7 +908,9 @@ public actor BETRCoreAgentClient {
                 previewState: output.liveTile.fallbackActive ? .fallback : (output.liveTile.sourceID == nil ? .unavailable : .live),
                 audioPresenceState: Self.makeAudioPresenceState(from: output.liveTile),
                 leftLevel: output.liveTile.leftLevel,
-                rightLevel: output.liveTile.rightLevel
+                rightLevel: output.liveTile.rightLevel,
+                playoutFaultStageID: output.liveTile.lastPlayoutFaultStage?.rawValue,
+                lastSuccessfulProgramSurfaceSequence: output.liveTile.lastSuccessfulProgramSurfaceSequence
             )
             let slots = output.slots.map { slot in
                 RoomControlOutputSlotState(
@@ -1063,7 +1067,9 @@ public actor BETRCoreAgentClient {
                 activeSourceState: activeSourceState
             ),
             leftLevel: 0,
-            rightLevel: 0
+            rightLevel: 0,
+            playoutFaultStageID: proofOutput?.lastPlayoutFaultStage?.rawValue,
+            lastSuccessfulProgramSurfaceSequence: proofOutput?.lastSuccessfulProgramSurfaceSequence
         )
         let card = RoomControlOutputCardState(
             id: outputID,

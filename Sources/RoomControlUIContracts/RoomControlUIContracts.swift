@@ -42,19 +42,25 @@ public struct OutputLiveTileModel: Sendable, Equatable {
     public let audioPresenceState: OutputAudioPresenceState
     public let leftLevel: Double
     public let rightLevel: Double
+    public let playoutFaultStageID: String?
+    public let lastSuccessfulProgramSurfaceSequence: UInt64?
 
     public init(
         sourceID: String? = nil,
         previewState: OutputPreviewState = .unavailable,
         audioPresenceState: OutputAudioPresenceState = .silent,
         leftLevel: Double = 0,
-        rightLevel: Double = 0
+        rightLevel: Double = 0,
+        playoutFaultStageID: String? = nil,
+        lastSuccessfulProgramSurfaceSequence: UInt64? = nil
     ) {
         self.sourceID = sourceID
         self.previewState = previewState
         self.audioPresenceState = audioPresenceState
         self.leftLevel = leftLevel
         self.rightLevel = rightLevel
+        self.playoutFaultStageID = playoutFaultStageID
+        self.lastSuccessfulProgramSurfaceSequence = lastSuccessfulProgramSurfaceSequence
     }
 }
 
