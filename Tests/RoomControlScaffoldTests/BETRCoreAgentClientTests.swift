@@ -1734,7 +1734,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
                 activeSourceEpoch: 4,
                 senderReady: true,
                 senderConnectionCount: 1,
-                videoCadenceSource: .displayLink,
+                videoCadenceSource: .outputClock,
                 audioCadenceSource: .hardwarePull,
                 routeStage: .sourceReadyCommitted,
                 lastVideoSendAt: Date(),
