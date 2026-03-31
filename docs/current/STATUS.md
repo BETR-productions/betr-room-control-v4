@@ -80,17 +80,17 @@
   - that installer package also preinstalls the root `BETRNetworkHelper` daemon in `/Library/PrivilegedHelperTools` and `/Library/LaunchDaemons` through a `postinstall` script
   - future in-app updates can continue to use the normal bridge/date-line updater path, and the app only needs to prompt again if the bundled helper changes
   - this Mac does not currently have the matching `Developer ID Installer` certificate in Keychain, so signed/notarized PKG publication is blocked until that cert is added
-- `0.3.31.7` is now the current staged date-line build for publish:
-  - planned release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.3.31.7`
+- `0.3.31.8` is now the current staged date-line build for publish:
+  - planned release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.3.31.8`
   - assets:
-    - `BETR-Room-Control-v0.3.31.7.zip`
-    - `BETR-Room-Control-v0.3.31.7.dmg`
+    - `BETR-Room-Control-v0.3.31.8.zip`
+    - `BETR-Room-Control-v0.3.31.8.dmg`
   - packaged validation passed with `embeddedSMAppService`, event observation, and preview transport
   - signed/notarized PKG publication is still blocked locally by the missing `Developer ID Installer` certificate
-  - the staged date-line build keeps the cold-start discovery bootstrap hotfix, the updater feed pagination fix, the live-program thumbnail/output-fallback recovery work, the new house-timed program pipeline, the program-surface fallback hotfix that restores real queued remote frames to the authoritative program surface, the pending-program enqueue hotfix that submits the first primed remote frame before the cut gate, the reconciliation-boundary hotfix that keeps the background driver out of media truth and fallback decisions, the explicit recv-to-send live-path cleanup that removes stale live masquerading from the output engine/runtime path, and the core direct-routed frame-sync cleanup that deletes the legacy queue/epoch live-playout path so future `+ Output` work follows the same ownership model as `OUT-1`
+  - the staged date-line build keeps the cold-start discovery bootstrap hotfix, the updater feed pagination fix, the live-program thumbnail/output-fallback recovery work, the new house-timed program pipeline, the program-surface fallback hotfix that restores real queued remote frames to the authoritative program surface, the pending-program enqueue hotfix that submits the first primed remote frame before the cut gate, the reconciliation-boundary hotfix that keeps the background driver out of media truth and fallback decisions, the explicit recv-to-send live-path cleanup that removes stale live masquerading from the output engine/runtime path, the core direct-routed frame-sync cleanup that deletes the legacy queue/epoch live-playout path so future `+ Output` work follows the same ownership model as `OUT-1`, the direct-path cadence cleanup that removes invented timer-owned audio/video fallback on direct outputs, and the dB-style output meter scaling update so operator levels match the real published audio path more closely
   - house format is now an operator setting with `1080p29.97/30/59.94/60` and `2160p29.97/30/59.94/60` presets carried end-to-end
   - the live program thumbnail now samples the same authoritative house-timed surface that feeds the network sender instead of a separate preview path
-  - publication uses explicit updater sequence `2026033107` so in-app update can advance cleanly from the bridge rescue line
+  - publication uses explicit updater sequence `2026033108` so in-app update can advance cleanly from the bridge rescue line
 - The date-line release now validates cleanly over the installed public `0.9.8.55`, so the updater can advance from the bridge line without returning to raw dotted version math.
 - Discovery Server operator UX now follows the same precedence as the core runtime:
   - `WAITING`, `CONNECTED`, and visible-source `PASS` state are driven from SDK listener lifecycle and actual discovery visibility only
@@ -137,5 +137,5 @@
   - `0.9.8.53` is superseded because it could still replay proof-mode shutdown state across restarts
   - `0.9.8.56` is superseded because the settings NIC flow and restart recovery still drifted from the operator contract
   - the public bridge release is `0.9.8.92`
-  - the current staged date-line release is `.3.31.7`, canonicalized to `0.3.31.7`
-  - explicit updater sequences `2026033009`, `2026033010`, `2026033011`, `2026033012`, `2026033101`, `2026033102`, `2026033103`, `2026033104`, `2026033105`, `2026033106`, and `2026033107` are what let the bridge rescue hand off cleanly across the date-line releases
+  - the current staged date-line release is `.3.31.8`, canonicalized to `0.3.31.8`
+  - explicit updater sequences `2026033009`, `2026033010`, `2026033011`, `2026033012`, `2026033101`, `2026033102`, `2026033103`, `2026033104`, `2026033105`, `2026033106`, `2026033107`, and `2026033108` are what let the bridge rescue hand off cleanly across the date-line releases
