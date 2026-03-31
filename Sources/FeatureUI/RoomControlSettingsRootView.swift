@@ -280,7 +280,6 @@ struct RoomControlSettingsRootView: View {
                                         ("Sender Ready", telemetry.senderReady ? "Yes" : "No"),
                                         ("Active Source", telemetry.activeSourceID ?? "None"),
                                         ("Preview Source", telemetry.previewSourceID ?? "None"),
-                                        ("Fallback", telemetry.fallbackActive ? "Yes" : "No"),
                                         ("Video Queue", "\(telemetry.videoQueueDepth)"),
                                         ("Queue Age", telemetry.videoQueueAgeMs.map { String(format: "%.1f ms", $0) } ?? "n/a"),
                                         ("Audio Queue", telemetry.audioQueueDepthMs.map { String(format: "%.1f ms", $0) } ?? "n/a"),

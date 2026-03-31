@@ -4,7 +4,7 @@ import TimerDomain
 
 public enum OutputPreviewState: String, Sendable, Equatable {
     case live
-    case fallback
+    case fault
     case unavailable
 }
 
@@ -21,7 +21,7 @@ public enum OutputStatusPill: String, Sendable, Equatable, CaseIterable, Identif
     case audio = "AUDIO"
     case muted = "MUTED"
     case solo = "SOLO"
-    case fallback = "FALLBACK"
+    case fault = "FAULT"
     case degraded = "DEGRADED"
     case arming = "ARMING"
     case error = "ERROR"
@@ -771,7 +771,6 @@ public struct NDIOutputTelemetryRow: Sendable, Equatable, Identifiable {
     public let senderReady: Bool
     public let activeSourceID: String?
     public let previewSourceID: String?
-    public let fallbackActive: Bool
     public let isSoloedLocally: Bool
     public let audioPresenceState: OutputAudioPresenceState
     public let leftLevel: Double
@@ -798,7 +797,6 @@ public struct NDIOutputTelemetryRow: Sendable, Equatable, Identifiable {
         senderReady: Bool = false,
         activeSourceID: String? = nil,
         previewSourceID: String? = nil,
-        fallbackActive: Bool = false,
         isSoloedLocally: Bool = false,
         audioPresenceState: OutputAudioPresenceState = .silent,
         leftLevel: Double = 0,
@@ -824,7 +822,6 @@ public struct NDIOutputTelemetryRow: Sendable, Equatable, Identifiable {
         self.senderReady = senderReady
         self.activeSourceID = activeSourceID
         self.previewSourceID = previewSourceID
-        self.fallbackActive = fallbackActive
         self.isSoloedLocally = isSoloedLocally
         self.audioPresenceState = audioPresenceState
         self.leftLevel = leftLevel
