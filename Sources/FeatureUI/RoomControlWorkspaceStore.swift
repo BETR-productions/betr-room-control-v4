@@ -3,6 +3,7 @@ import BETRCoreXPC
 import ClipPlayerDomain
 import Combine
 import CoreNDIHost
+import CoreNDIPlatform
 import HostWizardDomain
 import PersistenceDomain
 import PresentationDomain
@@ -289,6 +290,19 @@ public final class RoomControlWorkspaceStore: ObservableObject {
             },
             onSuccess: {
                 self.lastStatusMessage = muted ? "Muted \(outputID)." : "Restored audio on \(outputID)."
+            }
+        )
+    }
+
+    public func setOutputVideoFormat(_ outputID: String, preset: BETROutputVideoFormatPreset) {
+        let label = preset.label
+        performAction(
+            "Setting output format",
+            operation: { [coreAgentClient] in
+                try await coreAgentClient.setOutputVideoFormat(outputID: outputID, preset: preset)
+            },
+            onSuccess: {
+                self.lastStatusMessage = "Set \(outputID) to \(label)."
             }
         )
     }
