@@ -758,7 +758,7 @@ public actor BETRCoreAgentClient {
         let previewSourceIsWarm = card.previewSourceID.flatMap { sourceStateByID[$0]?.isWarm } ?? false
         card.liveTile = OutputLiveTileModel(
             sourceID: event.snapshot.sourceID,
-            previewState: event.snapshot.fallbackActive ? .fallback : event.snapshot.previewState.roomControlPreviewState,
+            previewState: event.snapshot.previewState.roomControlPreviewState,
             audioPresenceState: event.snapshot.audioPresenceState.roomControlAudioPresenceState,
             leftLevel: event.snapshot.leftLevel,
             rightLevel: event.snapshot.rightLevel,
@@ -780,7 +780,7 @@ public actor BETRCoreAgentClient {
             livePreviewState: card.liveTile.previewState,
             liveSourceID: event.snapshot.sourceID,
             desiredProgramSourceID: card.programSourceID,
-            senderReady: !event.snapshot.fallbackActive,
+            senderReady: event.snapshot.lastPlayoutFaultStage == nil,
             audioPresenceState: card.liveTile.audioPresenceState,
             isSoloedLocally: card.isSoloedLocally
         )
@@ -821,9 +821,7 @@ public actor BETRCoreAgentClient {
             sourceName: confidencePreview.sourceName,
             mode: confidencePreview.mode,
             isReady: confidencePreview.isReady,
-            previewState: advance.snapshot.fallbackActive
-                ? .fallback
-                : advance.snapshot.previewState.roomControlPreviewState,
+            previewState: advance.snapshot.previewState.roomControlPreviewState,
             audioPresenceState: advance.snapshot.audioPresenceState.roomControlAudioPresenceState,
             leftLevel: advance.snapshot.leftLevel,
             rightLevel: advance.snapshot.rightLevel
@@ -905,7 +903,7 @@ public actor BETRCoreAgentClient {
             let selectedSourceFormatLabel = programSourceID.flatMap { sourceByID[$0]?.readiness.flatMap(Self.makeSourceFormatLabel) }
             let liveTile = OutputLiveTileModel(
                 sourceID: output.liveTile.sourceID,
-                previewState: output.liveTile.fallbackActive ? .fallback : (output.liveTile.sourceID == nil ? .unavailable : .live),
+                previewState: output.liveTile.previewState.roomControlPreviewState,
                 audioPresenceState: Self.makeAudioPresenceState(from: output.liveTile),
                 leftLevel: output.liveTile.leftLevel,
                 rightLevel: output.liveTile.rightLevel,
@@ -1228,8 +1226,8 @@ public actor BETRCoreAgentClient {
 
     private static func makePreviewState(from proofOutput: BETRCoreProofOutputSnapshot?) -> OutputPreviewState {
         guard let proofOutput else { return .unavailable }
-        if proofOutput.fallbackActive {
-            return .fallback
+        if proofOutput.lastPlayoutFaultStage != nil {
+            return .fault
         }
         return proofOutput.activeSourceID == nil ? .unavailable : .live
     }
@@ -1338,8 +1336,8 @@ public actor BETRCoreAgentClient {
         desiredProgramSourceID: String?,
         senderReady: Bool
     ) -> OutputStatusPill? {
-        if livePreviewState == .fallback {
-            return .fallback
+        if livePreviewState == .fault {
+            return .fault
         }
 
         if let desiredProgramSourceID {
@@ -1501,7 +1499,6 @@ public actor BETRCoreAgentClient {
             senderReady: snapshot.senderReady,
             activeSourceID: snapshot.activeSourceID,
             previewSourceID: snapshot.previewSourceID,
-            fallbackActive: snapshot.fallbackActive,
             isSoloedLocally: snapshot.isSoloedLocally,
             audioPresenceState: snapshot.audioPresenceState.roomControlAudioPresenceState,
             leftLevel: snapshot.leftLevel,
@@ -1760,8 +1757,8 @@ private extension CoreNDIOutput.OutputPreviewAvailabilityState {
         switch self {
         case .live:
             return .live
-        case .fallback:
-            return .fallback
+        case .fault:
+            return .fault
         case .unavailable:
             return .unavailable
         }

@@ -1728,8 +1728,8 @@ private struct OutputPreviewTile: View {
         switch card.liveTile.previewState {
         case .live:
             return "LIVE"
-        case .fallback:
-            return "FALLBACK"
+        case .fault:
+            return "FAULT / NO FRAME"
         case .unavailable:
             return card.confidencePreview?.mode == .pendingProgram ? "ARMING" : "NO PROGRAM"
         }
@@ -1754,9 +1754,6 @@ private struct OutputPreviewTile: View {
     }
 
     private var liveSourceName: String {
-        if card.liveTile.previewState == .fallback {
-            return "Fallback"
-        }
         guard let liveSourceID = card.liveTile.sourceID else {
             return "None"
         }
@@ -1844,8 +1841,8 @@ private struct OutputPreviewTile: View {
         }
 
         let routeState: String
-        if card.statusPills.contains(.fallback) {
-            routeState = "Fallback on air"
+        if card.statusPills.contains(.fault) {
+            routeState = "Fault / no frame"
         } else if card.statusPills.contains(.arming) {
             routeState = "Switch arming"
         } else if card.statusPills.contains(.live) {
@@ -1879,8 +1876,8 @@ private struct OutputPreviewTile: View {
         if card.statusPills.contains(.arming) {
             return BrandTokens.gold
         }
-        if card.statusPills.contains(.fallback) {
-            return BrandTokens.charcoal
+        if card.statusPills.contains(.fault) {
+            return BrandTokens.red
         }
         return BrandTokens.timerGreen
     }
@@ -1925,9 +1922,7 @@ private struct OutputPreviewTile: View {
             tint = BrandTokens.timerYellow
         case "SOLO":
             tint = Color(hex: 0x2962D9)
-        case "FALLBACK", "NO PREVIEW":
-            tint = BrandTokens.charcoal
-        case "DEGRADED", "ERROR":
+        case "FAULT", "NO PREVIEW", "DEGRADED", "ERROR":
             tint = BrandTokens.red
         case "ARMING":
             tint = BrandTokens.gold
@@ -1977,8 +1972,8 @@ private struct OutputPreviewTile: View {
                     if discontinuityCount > 0 {
                         metricBadge("TS", "\(discontinuityCount)", tint: BrandTokens.red)
                     }
-                    if telemetry.fallbackActive {
-                        metricBadge("FB", "ON", tint: BrandTokens.charcoal)
+                    if card.liveTile.previewState == .fault {
+                        metricBadge("FAULT", card.liveTile.playoutFaultStageID ?? "no_frame", tint: BrandTokens.red)
                     } else if telemetry.senderReady == false {
                         metricBadge("READY", "WAIT", tint: BrandTokens.gold)
                     }
@@ -2187,13 +2182,17 @@ private struct LiveOutputSurfacePreview: View {
             VStack {
                 HStack {
                     Spacer()
-                    Text(previewState == .live ? surfaceLabel : (previewState == .fallback ? "FALLBACK" : standbyLabel))
+                    Text(
+                        previewState == .live
+                            ? surfaceLabel
+                            : (previewState == .fault ? "FAULT / NO FRAME" : standbyLabel)
+                    )
                         .font(BrandTokens.mono(size: 8))
                         .foregroundStyle(BrandTokens.offWhite)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                         .background(
-                            (previewState == .fallback ? BrandTokens.charcoal : Color.black)
+                            (previewState == .fault ? BrandTokens.red : Color.black)
                                 .opacity(0.78)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 5))
@@ -2332,12 +2331,16 @@ private struct OutputSlotCell: View {
         card.previewSlotID == slot.id
     }
 
+    private var slotHasAssignedSource: Bool {
+        slot.sourceID != nil
+    }
+
     private var slotCanSwitch: Bool {
-        slot.sourceID != nil && slot.isAvailable
+        slotHasAssignedSource
     }
 
     private var slotCanPreview: Bool {
-        slotCanSwitch && isProgram == false
+        slotHasAssignedSource && isProgram == false
     }
 
     private var isPreviewSeamlessReady: Bool {
