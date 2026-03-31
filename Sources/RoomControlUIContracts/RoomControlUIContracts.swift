@@ -121,12 +121,15 @@ public struct RoomControlOutputCardState: Sendable, Equatable, Identifiable {
     public let id: String
     public var title: String
     public var rasterLabel: String
+    public var videoFormatPresetID: String
     public var listenerCount: Int
     public var slots: [RoomControlOutputSlotState]
     public var programSlotID: String?
     public var previewSlotID: String?
     public var isAudioMuted: Bool
     public var isSoloedLocally: Bool
+    public var pendingProgramReady: Bool
+    public var selectedSourceFormatLabel: String?
     public var statusPills: [OutputStatusPill]
     public var liveTile: OutputLiveTileModel
     public var confidencePreview: OutputConfidencePreviewModel?
@@ -135,12 +138,15 @@ public struct RoomControlOutputCardState: Sendable, Equatable, Identifiable {
         id: String,
         title: String,
         rasterLabel: String,
+        videoFormatPresetID: String = "1080p2997",
         listenerCount: Int = 0,
         slots: [RoomControlOutputSlotState],
         programSlotID: String? = nil,
         previewSlotID: String? = nil,
         isAudioMuted: Bool = false,
         isSoloedLocally: Bool = false,
+        pendingProgramReady: Bool = false,
+        selectedSourceFormatLabel: String? = nil,
         statusPills: [OutputStatusPill] = [],
         liveTile: OutputLiveTileModel = OutputLiveTileModel(),
         confidencePreview: OutputConfidencePreviewModel? = nil
@@ -148,12 +154,15 @@ public struct RoomControlOutputCardState: Sendable, Equatable, Identifiable {
         self.id = id
         self.title = title
         self.rasterLabel = rasterLabel
+        self.videoFormatPresetID = videoFormatPresetID
         self.listenerCount = listenerCount
         self.slots = slots
         self.programSlotID = programSlotID
         self.previewSlotID = previewSlotID
         self.isAudioMuted = isAudioMuted
         self.isSoloedLocally = isSoloedLocally
+        self.pendingProgramReady = pendingProgramReady
+        self.selectedSourceFormatLabel = selectedSourceFormatLabel
         self.statusPills = statusPills
         self.liveTile = liveTile
         self.confidencePreview = confidencePreview
@@ -193,6 +202,7 @@ public struct RouterWorkspaceSourceState: Sendable, Equatable, Identifiable {
     public let provenance: String
     public let routedOutputIDs: [String]
     public let sortPriority: Int
+    public let latestVideoFormatLabel: String?
     public let isConnected: Bool
     public let isWarming: Bool
     public let isWarm: Bool
@@ -211,6 +221,7 @@ public struct RouterWorkspaceSourceState: Sendable, Equatable, Identifiable {
         provenance: String = "finder",
         routedOutputIDs: [String] = [],
         sortPriority: Int = 100,
+        latestVideoFormatLabel: String? = nil,
         isConnected: Bool = false,
         isWarming: Bool = false,
         isWarm: Bool = false,
@@ -228,6 +239,7 @@ public struct RouterWorkspaceSourceState: Sendable, Equatable, Identifiable {
         self.provenance = provenance
         self.routedOutputIDs = routedOutputIDs.sorted()
         self.sortPriority = sortPriority
+        self.latestVideoFormatLabel = latestVideoFormatLabel
         self.isConnected = isConnected
         self.isWarming = isWarming
         self.isWarm = isWarm

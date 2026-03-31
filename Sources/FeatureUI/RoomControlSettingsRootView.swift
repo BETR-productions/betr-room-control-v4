@@ -1,5 +1,6 @@
 import AppKit
 import CoreNDIHost
+import CoreNDIPlatform
 import HostWizardDomain
 import RoutingDomain
 import RoomControlUIContracts
@@ -98,6 +99,45 @@ struct RoomControlSettingsRootView: View {
                         keyValueRow("Persistent Root", store.shellState?.rootDirectory ?? "Unavailable")
                         keyValueRow("Current Wizard Step", stepTitle(currentStep))
                         keyValueRow("Discovery", discoverySummaryMessage)
+                    }
+                }
+
+                if let shellState = store.shellState {
+                    settingsCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            wizardSectionHeader(
+                                "Program Output Format",
+                                subtitle: "Choose the BETR house frame rate for each program output. PVW turns on only when the pending source is actually warm for that format."
+                            )
+
+                            ForEach(shellState.workspace.cards) { card in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(card.title)
+                                        .font(BrandTokens.display(size: 13, weight: .semibold))
+                                        .foregroundStyle(BrandTokens.offWhite)
+                                    Picker(
+                                        "Output Format",
+                                        selection: Binding(
+                                            get: {
+                                                BETROutputVideoFormatPreset(rawValue: card.videoFormatPresetID) ?? .default
+                                            },
+                                            set: { preset in
+                                                store.setOutputVideoFormat(card.id, preset: preset)
+                                            }
+                                        )
+                                    ) {
+                                        ForEach(BETROutputVideoFormatPreset.allCases) { preset in
+                                            Text(preset.label).tag(preset)
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+
+                                    keyValueRow("Configured Format", card.rasterLabel)
+                                    keyValueRow("Selected Source", card.selectedSourceFormatLabel ?? "Not detected yet")
+                                    keyValueRow("Take Readiness", card.pendingProgramReady ? "PVW" : "ARM")
+                                }
+                            }
+                        }
                     }
                 }
 

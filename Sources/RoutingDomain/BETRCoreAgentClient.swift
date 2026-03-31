@@ -350,6 +350,17 @@ public actor BETRCoreAgentClient {
         )
     }
 
+    public func setOutputVideoFormat(outputID: String, preset: BETROutputVideoFormatPreset) async throws {
+        _ = try await send(
+            .setOutputVideoFormat(
+                BETRCoreSetOutputVideoFormatRequest(
+                    outputID: outputID,
+                    preset: preset
+                )
+            )
+        )
+    }
+
     public func setOutputSoloedLocally(outputID: String, soloed: Bool) async throws {
         _ = try await send(
             .setOutputSoloedLocally(
@@ -757,7 +768,7 @@ public actor BETRCoreAgentClient {
             liveSourceID: event.snapshot.sourceID,
             programSourceID: card.programSourceID,
             programSourceName: card.programSourceName,
-            programSourceIsWarm: programSourceIsWarm,
+            programSourceReady: card.pendingProgramReady || programSourceIsWarm,
             previewSourceID: card.previewSourceID,
             previewSourceName: card.previewSourceName,
             previewSourceIsWarm: previewSourceIsWarm,
@@ -889,6 +900,7 @@ public actor BETRCoreAgentClient {
             let previewSourceID = output.previewSlotID.flatMap { slotID(for: $0, in: output) }
             let programSourceIsWarm = programSourceID.flatMap { sourceByID[$0]?.readiness?.warm } ?? false
             let previewSourceIsWarm = previewSourceID.flatMap { sourceByID[$0]?.readiness?.warm } ?? false
+            let selectedSourceFormatLabel = programSourceID.flatMap { sourceByID[$0]?.readiness.flatMap(Self.makeSourceFormatLabel) }
             let liveTile = OutputLiveTileModel(
                 sourceID: output.liveTile.sourceID,
                 previewState: output.liveTile.fallbackActive ? .fallback : (output.liveTile.sourceID == nil ? .unavailable : .live),
@@ -915,12 +927,15 @@ public actor BETRCoreAgentClient {
                 id: output.id,
                 title: output.title,
                 rasterLabel: output.rasterLabel,
+                videoFormatPresetID: output.videoFormatPreset.rawValue,
                 listenerCount: output.listenerCount,
                 slots: slots,
                 programSlotID: output.programSlotID,
                 previewSlotID: output.previewSlotID,
                 isAudioMuted: output.isAudioMuted,
                 isSoloedLocally: output.isSoloedLocally,
+                pendingProgramReady: output.pendingProgramReady,
+                selectedSourceFormatLabel: selectedSourceFormatLabel,
                 statusPills: Self.makeStatusPills(
                     livePreviewState: liveTile.previewState,
                     liveSourceID: output.liveTile.sourceID,
@@ -934,7 +949,7 @@ public actor BETRCoreAgentClient {
                     liveSourceID: output.liveTile.sourceID,
                     programSourceID: programSourceID,
                     programSourceName: programSourceID.flatMap { sourceNameByID[$0] },
-                    programSourceIsWarm: programSourceIsWarm,
+                    programSourceReady: output.pendingProgramReady || programSourceIsWarm,
                     previewSourceID: previewSourceID,
                     previewSourceName: previewSourceID.flatMap { sourceNameByID[$0] },
                     previewSourceIsWarm: previewSourceIsWarm
@@ -950,6 +965,7 @@ public actor BETRCoreAgentClient {
                 provenance: source.provenance,
                 routedOutputIDs: source.routedOutputIDs,
                 sortPriority: source.sortPriority,
+                latestVideoFormatLabel: source.readiness.flatMap(Self.makeSourceFormatLabel),
                 isConnected: source.readiness?.connected ?? false,
                 isWarming: source.readiness?.warming ?? false,
                 isWarm: source.readiness?.warm ?? false,
@@ -1038,6 +1054,7 @@ public actor BETRCoreAgentClient {
         let programSourceID = validation?.programSourceID
         let previewSourceIsWarm = previewSourceState?.warm ?? false
         let programSourceIsWarm = activeSourceState?.warm ?? false
+        let selectedSourceFormatLabel = activeSourceState.flatMap(Self.makeSourceFormatLabel)
         let liveTile = OutputLiveTileModel(
             sourceID: liveSourceID,
             previewState: Self.makePreviewState(from: proofOutput),
@@ -1051,11 +1068,14 @@ public actor BETRCoreAgentClient {
         let card = RoomControlOutputCardState(
             id: outputID,
             title: outputTitle,
-            rasterLabel: "1920×1080 / 29.97",
+            rasterLabel: proofOutput?.videoFormatPreset.rasterLabel ?? BETROutputVideoFormatPreset.default.rasterLabel,
+            videoFormatPresetID: proofOutput?.videoFormatPreset.rawValue ?? BETROutputVideoFormatPreset.default.rawValue,
             listenerCount: proofOutput?.senderConnectionCount ?? 0,
             slots: slots,
             programSlotID: validation?.programSlotID ?? slots.first(where: \.isProgram)?.id,
             previewSlotID: validation?.previewSlotID ?? slots.first(where: \.isPreview)?.id,
+            pendingProgramReady: proofOutput?.pendingProgramReady ?? false,
+            selectedSourceFormatLabel: selectedSourceFormatLabel,
             statusPills: Self.makeStatusPills(
                 livePreviewState: liveTile.previewState,
                 liveSourceID: liveSourceID,
@@ -1069,7 +1089,7 @@ public actor BETRCoreAgentClient {
                 liveSourceID: liveSourceID,
                 programSourceID: programSourceID,
                 programSourceName: programSourceID.flatMap { sourceNameByID[$0] },
-                programSourceIsWarm: programSourceIsWarm,
+                programSourceReady: (proofOutput?.pendingProgramReady ?? false) || programSourceIsWarm,
                 previewSourceID: validation?.previewSourceID,
                 previewSourceName: validation?.previewSourceID.flatMap { sourceNameByID[$0] },
                 previewSourceIsWarm: previewSourceIsWarm
@@ -1088,6 +1108,7 @@ public actor BETRCoreAgentClient {
                     programSourceID: validation?.programSourceID,
                     previewSourceID: validation?.previewSourceID
                 ),
+                latestVideoFormatLabel: sourceStateByID[record.descriptor.id].flatMap(Self.makeSourceFormatLabel),
                 isConnected: sourceStateByID[record.descriptor.id]?.connected ?? false,
                 isWarming: sourceStateByID[record.descriptor.id]?.warming ?? false,
                 isWarm: sourceStateByID[record.descriptor.id]?.warm ?? false,
@@ -1207,11 +1228,35 @@ public actor BETRCoreAgentClient {
         return proofOutput.activeSourceID == nil ? .unavailable : .live
     }
 
+    private static func makeSourceFormatLabel(
+        _ source: BETRCoreSourceWarmStateSnapshot
+    ) -> String? {
+        guard let width = source.latestVideoWidth,
+              let height = source.latestVideoHeight,
+              let numerator = source.latestVideoFrameRateNumerator,
+              let denominator = source.latestVideoFrameRateDenominator,
+              denominator > 0 else {
+            return nil
+        }
+
+        if let preset = BETROutputVideoFormatPreset.inferred(
+            width: width,
+            height: height,
+            frameRateNumerator: numerator,
+            frameRateDenominator: denominator
+        ) {
+            return preset.rasterLabel
+        }
+
+        let fps = Double(numerator) / Double(denominator)
+        return "\(width)×\(height) / \(String(format: "%.2f", fps))"
+    }
+
     private static func makeConfidencePreview(
         liveSourceID: String?,
         programSourceID: String?,
         programSourceName: String?,
-        programSourceIsWarm: Bool,
+        programSourceReady: Bool,
         previewSourceID: String?,
         previewSourceName: String?,
         previewSourceIsWarm: Bool,
@@ -1222,7 +1267,7 @@ public actor BETRCoreAgentClient {
                 sourceID: programSourceID,
                 sourceName: programSourceName,
                 mode: .pendingProgram,
-                isReady: programSourceIsWarm,
+                isReady: programSourceReady,
                 existing: existing
             )
         }
