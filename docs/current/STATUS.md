@@ -80,17 +80,17 @@
   - that installer package also preinstalls the root `BETRNetworkHelper` daemon in `/Library/PrivilegedHelperTools` and `/Library/LaunchDaemons` through a `postinstall` script
   - future in-app updates can continue to use the normal bridge/date-line updater path, and the app only needs to prompt again if the bundled helper changes
   - this Mac does not currently have the matching `Developer ID Installer` certificate in Keychain, so signed/notarized PKG publication is blocked until that cert is added
-- `0.3.31.2` is now the current staged date-line build for publish:
-  - planned release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.3.31.2`
+- `0.3.31.3` is now the current staged date-line build for publish:
+  - planned release: `https://github.com/BETR-productions/betr-room-control-v2/releases/tag/v0.3.31.3`
   - assets:
-    - `BETR-Room-Control-v0.3.31.2.zip`
-    - `BETR-Room-Control-v0.3.31.2.dmg`
+    - `BETR-Room-Control-v0.3.31.3.zip`
+    - `BETR-Room-Control-v0.3.31.3.dmg`
   - packaged validation passed with `embeddedSMAppService`, event observation, and preview transport
   - signed/notarized PKG publication is still blocked locally by the missing `Developer ID Installer` certificate
-  - the staged date-line build keeps the cold-start discovery bootstrap hotfix, the updater feed pagination fix, the live-program thumbnail/output-fallback recovery work, the new house-timed program pipeline, and the program-surface fallback hotfix that restores real queued remote frames to the authoritative program surface
+  - the staged date-line build keeps the cold-start discovery bootstrap hotfix, the updater feed pagination fix, the live-program thumbnail/output-fallback recovery work, the new house-timed program pipeline, the program-surface fallback hotfix that restores real queued remote frames to the authoritative program surface, and the pending-program enqueue hotfix that submits the first primed remote frame before the cut gate
   - house format is now an operator setting with `1080p29.97/30/59.94/60` and `2160p29.97/30/59.94/60` presets carried end-to-end
   - the live program thumbnail now samples the same authoritative house-timed surface that feeds the network sender instead of a separate preview path
-  - publication uses explicit updater sequence `2026033102` so in-app update can advance cleanly from the bridge rescue line
+  - publication uses explicit updater sequence `2026033103` so in-app update can advance cleanly from the bridge rescue line
 - The date-line release now validates cleanly over the installed public `0.9.8.55`, so the updater can advance from the bridge line without returning to raw dotted version math.
 - Discovery Server operator UX now follows the same precedence as the core runtime:
   - `WAITING`, `CONNECTED`, and visible-source `PASS` state are driven from SDK listener lifecycle and actual discovery visibility only
@@ -137,5 +137,5 @@
   - `0.9.8.53` is superseded because it could still replay proof-mode shutdown state across restarts
   - `0.9.8.56` is superseded because the settings NIC flow and restart recovery still drifted from the operator contract
   - the public bridge release is `0.9.8.92`
-  - the current staged date-line release is `.3.31.2`, canonicalized to `0.3.31.2`
-  - explicit updater sequences `2026033009`, `2026033010`, `2026033011`, `2026033012`, `2026033101`, and `2026033102` are what let the bridge rescue hand off cleanly across the date-line releases
+  - the current staged date-line release is `.3.31.3`, canonicalized to `0.3.31.3`
+  - explicit updater sequences `2026033009`, `2026033010`, `2026033011`, `2026033012`, `2026033101`, `2026033102`, and `2026033103` are what let the bridge rescue hand off cleanly across the date-line releases
