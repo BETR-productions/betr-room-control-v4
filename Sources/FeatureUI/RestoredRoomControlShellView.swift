@@ -2401,8 +2401,10 @@ private struct OutputMeterBar: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let clampedLevel = max(0, min(level, 1))
-            let fillHeight = max(2, geometry.size.height * clampedLevel)
+            let normalizedFill = OutputMeterScale.normalizedFillLevel(forLinearLevel: level)
+            let fillHeight = normalizedFill > 0
+                ? max(2, geometry.size.height * normalizedFill)
+                : 0
             let palette = muted
                 ? [Color(hex: 0x4A5568), Color(hex: 0x718096), Color(hex: 0xDD8B20)]
                 : [Color(hex: 0x1FC05E), Color(hex: 0xE0B238), Color(hex: 0xD84A3B)]
