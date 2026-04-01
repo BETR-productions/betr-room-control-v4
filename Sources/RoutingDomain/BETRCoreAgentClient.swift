@@ -145,6 +145,7 @@ public actor BETRCoreAgentClient {
                     return Self.makeDiscoveryDebugSnapshot(snapshot)
                 }
                 lastSnapshot = snapshot
+                lastError = nil
             } catch {
                 lastError = error
                 invalidateConnection()
@@ -156,6 +157,12 @@ public actor BETRCoreAgentClient {
 
         if requireSDKLoadedPath == false, let lastSnapshot {
             return Self.makeDiscoveryDebugSnapshot(lastSnapshot)
+        }
+
+        if lastSnapshot != nil {
+            throw BETRCoreAgentClientError.xpcUnavailable(
+                "BETRCoreAgent did not report a loaded NDI SDK path."
+            )
         }
 
         throw lastError ?? BETRCoreAgentClientError.xpcUnavailable(
@@ -527,7 +534,10 @@ public actor BETRCoreAgentClient {
             }
         }
 
-        let response = try await send(.requestDiscoveryDebugSnapshot)
+        let response = try await send(
+            .requestDiscoveryDebugSnapshot,
+            timeoutNanosecondsOverride: timeoutNanoseconds
+        )
         guard case let .discoveryDebug(snapshot) = response else {
             throw BETRCoreAgentClientError.malformedResponse
         }
@@ -1117,8 +1127,8 @@ public actor BETRCoreAgentClient {
                 audioPresenceState: audioPresenceState,
                 leftLevel: telemetry?.leftLevel ?? 0,
                 rightLevel: telemetry?.rightLevel ?? 0,
-                playoutFaultStageID: usesProofFallback ? proofOutput?.lastPlayoutFaultStage?.rawValue : nil,
-                lastSuccessfulProgramSurfaceSequence: usesProofFallback ? proofOutput?.lastSuccessfulProgramSurfaceSequence : nil
+                playoutFaultStageID: outputID == proofOutputID ? proofOutput?.lastPlayoutFaultStage?.rawValue : nil,
+                lastSuccessfulProgramSurfaceSequence: outputID == proofOutputID ? proofOutput?.lastSuccessfulProgramSurfaceSequence : nil
             )
 
             return RoomControlOutputCardState(

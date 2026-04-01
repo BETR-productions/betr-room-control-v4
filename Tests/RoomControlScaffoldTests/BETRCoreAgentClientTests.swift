@@ -330,6 +330,51 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(attempts, 3)
     }
 
+    func testWaitForDiscoveryDebugSnapshotHonorsTransportTimeoutOverride() async throws {
+        actor CommandCounter {
+            private(set) var commands: [BETRCoreCommandEnvelope] = []
+
+            func record(_ command: BETRCoreCommandEnvelope) {
+                commands.append(command)
+            }
+
+            func current() -> [BETRCoreCommandEnvelope] {
+                commands
+            }
+        }
+
+        let counter = CommandCounter()
+        let client = BETRCoreAgentClient(
+            operationTimeoutNanoseconds: 50_000_000,
+            commandTransport: { command in
+                await counter.record(command)
+                try await Task.sleep(nanoseconds: 100_000_000)
+                return .discoveryDebug(
+                    BETRCoreDiscoveryDebugSnapshotResponse(
+                        generatedAt: Date(timeIntervalSince1970: 1_700_000_500),
+                        sdkBootstrapState: .initialized,
+                        configDirectory: "/Users/test/Library/Application Support/BETRCoreAgentV3",
+                        configPath: "/Users/test/Library/Application Support/BETRCoreAgentV3/ndi-config.v1.json",
+                        sdkLoadedPath: "/Applications/BETR Room Control.app/Contents/Frameworks/libndi.dylib",
+                        sdkVersion: "6.1.1",
+                        discoveryServers: []
+                    )
+                )
+            }
+        )
+
+        let snapshot = try await client.waitForDiscoveryDebugSnapshot(
+            maxAttempts: 1,
+            retryIntervalNanoseconds: 1_000_000,
+            requestTimeoutNanoseconds: 200_000_000,
+            requireSDKLoadedPath: true
+        )
+
+        XCTAssertEqual(snapshot.sdkLoadedPath, "/Applications/BETR Room Control.app/Contents/Frameworks/libndi.dylib")
+        let commands = await counter.current()
+        XCTAssertEqual(commands, [.requestDiscoveryDebugSnapshot])
+    }
+
     func testCurrentValidationSnapshotKeepsConfiguredDiscoveryServerVisibleWhenListenerStatusIsMissing() async {
         let client = BETRCoreAgentClient(
             validationSnapshotProvider: {
