@@ -33,9 +33,7 @@ let package = Package(
         ),
         .target(
             name: "ClipPlayerDomain",
-            dependencies: [
-                .product(name: "CoreNDIOutput", package: "betr-core-v3"),
-            ],
+            dependencies: [],
             path: "Sources/ClipPlayerDomain"
         ),
         .target(
@@ -72,7 +70,6 @@ let package = Package(
                 "TimerDomain",
                 .product(name: "BETRCoreXPC", package: "betr-core-v3"),
                 .product(name: "CoreNDIHost", package: "betr-core-v3"),
-                .product(name: "CoreNDIOutput", package: "betr-core-v3"),
                 .product(name: "CoreNDIPlatform", package: "betr-core-v3"),
             ],
             path: "Sources/RoutingDomain"
@@ -115,7 +112,6 @@ let package = Package(
                 .product(name: "BETRCoreXPC", package: "betr-core-v3"),
                 .product(name: "CoreNDIDiscovery", package: "betr-core-v3"),
                 .product(name: "CoreNDIHost", package: "betr-core-v3"),
-                .product(name: "CoreNDIOutput", package: "betr-core-v3"),
                 .product(name: "CoreNDIPlatform", package: "betr-core-v3"),
             ],
             path: "Tests/RoomControlScaffoldTests"

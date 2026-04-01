@@ -1,4 +1,3 @@
-import CoreNDIOutput
 import Foundation
 
 public enum ClipPlayerConstants {
@@ -205,9 +204,6 @@ public struct ClipPlayerRuntimeSnapshot: Codable, Sendable, Equatable {
     public let playbackMode: ClipPlayerPlaybackMode
     public let transitionType: ClipPlayerTransitionType
     public let transitionDurationMs: Int
-    public let preview: OutputPreviewSnapshot?
-    public let selectionPreview: OutputPreviewSnapshot?
-    public let outputProfile: OutputProfile?
     public let items: [ClipPlayerRuntimeItemState]
     public let lastErrorMessage: String?
 
@@ -225,9 +221,6 @@ public struct ClipPlayerRuntimeSnapshot: Codable, Sendable, Equatable {
         playbackMode: ClipPlayerPlaybackMode = .sequential,
         transitionType: ClipPlayerTransitionType = .fade,
         transitionDurationMs: Int = ClipPlayerConstants.defaultTransitionDurationMs,
-        preview: OutputPreviewSnapshot? = nil,
-        selectionPreview: OutputPreviewSnapshot? = nil,
-        outputProfile: OutputProfile? = nil,
         items: [ClipPlayerRuntimeItemState] = [],
         lastErrorMessage: String? = nil
     ) {
@@ -244,9 +237,6 @@ public struct ClipPlayerRuntimeSnapshot: Codable, Sendable, Equatable {
         self.playbackMode = playbackMode
         self.transitionType = transitionType
         self.transitionDurationMs = transitionDurationMs
-        self.preview = preview
-        self.selectionPreview = selectionPreview
-        self.outputProfile = outputProfile
         self.items = items.sorted { lhs, rhs in
             if lhs.sortOrder == rhs.sortOrder {
                 return lhs.fileName.localizedCaseInsensitiveCompare(rhs.fileName) == .orderedAscending
