@@ -67,7 +67,7 @@ struct RoomControlDesktopApplication: App {
             let observedOutputID = workspaceSnapshot.outputs.first?.id
             let previewTransportReachable: Bool
             if let observedOutputID {
-                previewTransportReachable = try await client.probeOutputPreviewTransport(outputID: observedOutputID)
+                previewTransportReachable = (try? await client.probeOutputPreviewTransport(outputID: observedOutputID)) ?? false
             } else {
                 previewTransportReachable = false
             }
