@@ -63,8 +63,6 @@ struct RoomControlDesktopApplication: App {
             let client = BETRCoreAgentClient()
             let workspaceSnapshot = try await client.waitForAgentAvailability()
             try await client.startObservingEvents { _ in }
-            let outputID = workspaceSnapshot.outputs.first?.id ?? "OUT-1"
-            let previewTransportReachable = try await client.probeOutputPreviewTransport(outputID: outputID)
             await client.stopObservingEvents()
             let payload = RoomControlBootstrapCheckPayload(
                 mode: status.mode.rawValue,
@@ -75,9 +73,8 @@ struct RoomControlDesktopApplication: App {
                 outputCount: workspaceSnapshot.outputs.count,
                 sourceCount: workspaceSnapshot.sources.count,
                 statusMessage: workspaceSnapshot.discoverySummary,
-                observedOutputID: outputID,
                 eventObservationReady: true,
-                previewTransportReachable: previewTransportReachable
+                observedOutputID: nil
             )
             let data = try encoder.encode(payload)
             FileHandle.standardOutput.write(data)
@@ -120,9 +117,8 @@ private struct RoomControlBootstrapCheckPayload: Encodable {
     let outputCount: Int
     let sourceCount: Int
     let statusMessage: String?
-    let observedOutputID: String
+    let observedOutputID: String?
     let eventObservationReady: Bool
-    let previewTransportReachable: Bool
 }
 
 private struct RoomControlBootstrapCheckFailure: Encodable {
