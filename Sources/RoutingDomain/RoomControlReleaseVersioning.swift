@@ -9,7 +9,7 @@ public enum RoomControlReleaseTrack: String, Codable, Sendable {
 public enum RoomControlReleaseVersioning {
     public static let releaseTrackInfoKey = "BETRReleaseTrack"
     public static let updateSequenceInfoKey = "BETRUpdateSequence"
-    public static let bridgeVersion = "0.9.8.51"
+    public static let bridgeVersion = "0.9.8.57"
     public static let firstDateVersion = "0.3.23.2"
     public static let releaseTrackMarkerPrefix = "BETR-Release-Track:"
     public static let updateSequenceMarkerPrefix = "BETR-Update-Sequence:"

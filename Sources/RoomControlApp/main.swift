@@ -73,8 +73,8 @@ struct RoomControlDesktopApplication: App {
                 outputCount: workspaceSnapshot.outputs.count,
                 sourceCount: workspaceSnapshot.sources.count,
                 statusMessage: workspaceSnapshot.discoverySummary,
-                eventObservationReady: true,
-                observedOutputID: nil
+                observedOutputID: nil,
+                eventObservationReady: true
             )
             let data = try encoder.encode(payload)
             FileHandle.standardOutput.write(data)

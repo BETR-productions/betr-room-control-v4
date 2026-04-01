@@ -40,7 +40,7 @@ final class UpdateCheckerReleaseResolverTests: XCTestCase {
     func testBridgeTrackPrefersDateLineReleaseUsingUpdateSequence() {
         let releases = [
             GitHubReleaseRecord(
-                tagName: "v0.9.8.51",
+                tagName: "v0.9.8.57",
                 draft: false,
                 prerelease: false,
                 assets: [],
@@ -74,7 +74,7 @@ final class UpdateCheckerReleaseResolverTests: XCTestCase {
     func testLegacyTrackStillPrefersBridgeVersionByNumericOrdering() {
         let releases = [
             GitHubReleaseRecord(
-                tagName: "v0.9.8.51",
+                tagName: "v0.9.8.57",
                 draft: false,
                 prerelease: false,
                 assets: [],
@@ -100,7 +100,7 @@ final class UpdateCheckerReleaseResolverTests: XCTestCase {
             currentTrack: .legacy
         )
 
-        XCTAssertEqual(selection?.version, "0.9.8.51")
+        XCTAssertEqual(selection?.version, "0.9.8.57")
         XCTAssertEqual(selection?.releaseTrack, .bridge)
         XCTAssertEqual(selection?.updateSequence, 2026032302)
     }
