@@ -1,6 +1,7 @@
 # AGENTS.md -- betr-room-control-v4
 
 ## Read First
+
 - `../../AGENTS.md`
 - `../../betr-docs/current/ndi/compass_artifact_wf-e70011ae-0052-42e5-9ede-7295d0976b88_text_markdown.md`
 - `../../betr-docs/current/TASK_AND_LOG_PROTOCOL.md`
@@ -12,6 +13,7 @@
 - `./docs/current/EXECUTION_PLAN.md`
 
 ## Repo Rules
+
 - This is the restart-line Room Control app for the new core-agent architecture.
 - Preserve the V3 operator shell, grouped NDI wizard flow, and operator-facing action surface unless the shared docs are updated first.
 - The Compass NDI media spec in `../../betr-docs/current/ndi/compass_artifact_wf-e70011ae-0052-42e5-9ede-7295d0976b88_text_markdown.md` is the only media-chain authority. Keep discovery/wizard guidance separate and do not reintroduce app-owned media timing or fallback semantics.

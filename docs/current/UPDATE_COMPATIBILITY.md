@@ -6,6 +6,7 @@
 - last_verified: 2026-04-01
 
 ## Current Intent
+
 - The restart line is targeting in-place upgrade compatibility with the current public Room Control identity.
 - Migration, updater, notarization, and installer validation remain first-class workstreams from the beginning.
 - As of 2026-04-01, the latest published date-line release is `0.3.31.9`.
