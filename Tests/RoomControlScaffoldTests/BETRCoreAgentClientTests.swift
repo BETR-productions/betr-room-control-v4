@@ -288,6 +288,48 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(snapshot?.discoveryServers.first?.senderCandidateAddresses, ["192.168.55.11:5959"])
     }
 
+    func testWaitForDiscoveryDebugSnapshotWaitsUntilSDKPathIsReported() async throws {
+        actor AttemptCounter {
+            var attempts = 0
+
+            func nextAttempt() -> Int {
+                attempts += 1
+                return attempts
+            }
+
+            func current() -> Int {
+                attempts
+            }
+        }
+
+        let counter = AttemptCounter()
+        let client = BETRCoreAgentClient(
+            discoveryDebugSnapshotProvider: {
+                let attempt = await counter.nextAttempt()
+                return BETRCoreDiscoveryDebugSnapshotResponse(
+                    generatedAt: Date(timeIntervalSince1970: 1_700_000_400 + Double(attempt)),
+                    sdkBootstrapState: .initialized,
+                    configDirectory: "/Users/test/Library/Application Support/BETRCoreAgentV3",
+                    configPath: "/Users/test/Library/Application Support/BETRCoreAgentV3/ndi-config.v1.json",
+                    sdkLoadedPath: attempt < 3 ? nil : "/Applications/BETR Room Control.app/Contents/Frameworks/libndi.dylib",
+                    sdkVersion: "6.1.1",
+                    discoveryServers: []
+                )
+            }
+        )
+
+        let snapshot = try await client.waitForDiscoveryDebugSnapshot(
+            maxAttempts: 4,
+            retryIntervalNanoseconds: 1_000_000,
+            requestTimeoutNanoseconds: 50_000_000,
+            requireSDKLoadedPath: true
+        )
+
+        XCTAssertEqual(snapshot.sdkLoadedPath, "/Applications/BETR Room Control.app/Contents/Frameworks/libndi.dylib")
+        let attempts = await counter.current()
+        XCTAssertEqual(attempts, 3)
+    }
+
     func testCurrentValidationSnapshotKeepsConfiguredDiscoveryServerVisibleWhenListenerStatusIsMissing() async {
         let client = BETRCoreAgentClient(
             validationSnapshotProvider: {
@@ -634,6 +676,43 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(shellState.workspace.cards.map { $0.id }, ["OUT-1", "OUT-2"])
         XCTAssertEqual(shellState.workspace.cards.last?.title, "Program Output 2")
         XCTAssertEqual(shellState.workspace.cards.last?.previewSlotID, "S1")
+    }
+
+    func testBootstrapValidationFallbackKeepsProofOutputForCardsMissingTelemetry() async {
+        let validation = Self.makeValidationSnapshot(
+            outputTelemetry: [
+                BETRCoreOutputTelemetrySnapshot(
+                    id: "OUT-2",
+                    senderConnectionCount: 0,
+                    senderReady: true,
+                    activeSourceID: nil,
+                    previewSourceID: "ndi-presenter",
+                    pendingProgramReady: false,
+                    audioPresenceState: .silent
+                ),
+            ],
+            outputSlots: [
+                BETRCoreOutputSlotSnapshot(outputID: "OUT-1", slotID: "S1", label: "S1", sourceID: "ndi-presenter"),
+                BETRCoreOutputSlotSnapshot(outputID: "OUT-1", slotID: "S2", label: "S2", sourceID: "ndi-slideshow"),
+                BETRCoreOutputSlotSnapshot(outputID: "OUT-2", slotID: "S1", label: "S1", sourceID: "ndi-presenter"),
+                BETRCoreOutputSlotSnapshot(outputID: "OUT-2", slotID: "S2", label: "S2", sourceID: nil),
+            ]
+        )
+
+        let client = BETRCoreAgentClient(
+            operationTimeoutNanoseconds: 50_000_000,
+            workspaceSnapshotProvider: {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                return Self.makeWorkspaceSnapshot()
+            },
+            validationSnapshotProvider: { validation }
+        )
+
+        let shellState = await client.bootstrapShellState(rootDirectory: "/tmp/betr-room-control-v4-tests")
+
+        XCTAssertEqual(shellState.workspace.cards.map(\.id), ["OUT-1", "OUT-2"])
+        XCTAssertEqual(shellState.workspace.cards.first?.programSlotID, "S2")
+        XCTAssertEqual(shellState.workspace.cards.first?.previewSlotID, "S1")
     }
 
     func testResetNDIHostEnvironmentUsesExtendedTimeoutForSlowHostControlCommands() async throws {

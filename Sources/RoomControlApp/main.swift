@@ -64,6 +64,9 @@ struct RoomControlDesktopApplication: App {
             let workspaceSnapshot = try await client.waitForAgentAvailability()
             try await client.startObservingEvents { _ in }
             await client.stopObservingEvents()
+            let discoveryDebugSnapshot = try await client.waitForDiscoveryDebugSnapshot(
+                requireSDKLoadedPath: true
+            )
             let observedOutputID = workspaceSnapshot.outputs.first?.id
             let previewTransportReachable: Bool
             if let observedOutputID {
@@ -81,6 +84,7 @@ struct RoomControlDesktopApplication: App {
                 sourceCount: workspaceSnapshot.sources.count,
                 statusMessage: workspaceSnapshot.discoverySummary,
                 observedOutputID: observedOutputID,
+                sdkLoadedPath: discoveryDebugSnapshot.sdkLoadedPath,
                 eventObservationReady: true,
                 previewTransportReachable: previewTransportReachable
             )
@@ -126,6 +130,7 @@ private struct RoomControlBootstrapCheckPayload: Encodable {
     let sourceCount: Int
     let statusMessage: String?
     let observedOutputID: String?
+    let sdkLoadedPath: String?
     let eventObservationReady: Bool
     let previewTransportReachable: Bool
 }
