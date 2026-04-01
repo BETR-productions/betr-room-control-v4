@@ -3,11 +3,13 @@
 - owner: unassigned
 - status: current
 - applies_to: `betr-room-control-v4`
-- last_verified: 2026-03-26
+- last_verified: 2026-04-01
 
 ## Current Intent
 - The restart line is targeting in-place upgrade compatibility with the current public Room Control identity.
 - Migration, updater, notarization, and installer validation remain first-class workstreams from the beginning.
+- As of 2026-04-01, the latest published date-line release is `0.3.31.9`.
+- The next default public date-line target is `.4.1.1`, canonicalized to `0.4.1.1`, with hidden update sequence `2026040101`.
 - `scripts/build-app.sh` now preserves the public app identity while assembling a packaged bundle with:
   - `CFBundleIdentifier = com.betr.room-control`
   - `Contents/Helpers/BETRCoreAgent`
