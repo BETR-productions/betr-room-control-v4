@@ -64,6 +64,13 @@ struct RoomControlDesktopApplication: App {
             let workspaceSnapshot = try await client.waitForAgentAvailability()
             try await client.startObservingEvents { _ in }
             await client.stopObservingEvents()
+            let observedOutputID = workspaceSnapshot.outputs.first?.id
+            let previewTransportReachable: Bool
+            if let observedOutputID {
+                previewTransportReachable = (try? await client.probeOutputPreviewTransport(outputID: observedOutputID)) ?? false
+            } else {
+                previewTransportReachable = false
+            }
             let payload = RoomControlBootstrapCheckPayload(
                 mode: status.mode.rawValue,
                 executablePath: status.executablePath,
@@ -73,8 +80,9 @@ struct RoomControlDesktopApplication: App {
                 outputCount: workspaceSnapshot.outputs.count,
                 sourceCount: workspaceSnapshot.sources.count,
                 statusMessage: workspaceSnapshot.discoverySummary,
-                observedOutputID: nil,
-                eventObservationReady: true
+                observedOutputID: observedOutputID,
+                eventObservationReady: true,
+                previewTransportReachable: previewTransportReachable
             )
             let data = try encoder.encode(payload)
             FileHandle.standardOutput.write(data)
@@ -119,6 +127,7 @@ private struct RoomControlBootstrapCheckPayload: Encodable {
     let statusMessage: String?
     let observedOutputID: String?
     let eventObservationReady: Bool
+    let previewTransportReachable: Bool
 }
 
 private struct RoomControlBootstrapCheckFailure: Encodable {
