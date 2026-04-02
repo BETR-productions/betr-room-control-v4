@@ -1045,8 +1045,9 @@ public actor BETRCoreAgentClient {
             (validation?.outputSlots.map(\.outputID) ?? [])
                 + (validation?.outputTelemetry.map(\.id) ?? [])
         )
+        let shouldUseProofBootstrapFallback = outputIDCandidates.isEmpty
         let outputIDs: [String]
-        if outputIDCandidates.isEmpty {
+        if shouldUseProofBootstrapFallback {
             outputIDs = [proofOutputID ?? "OUT-1"]
         } else {
             outputIDs = outputIDCandidates.sorted()
@@ -1054,24 +1055,30 @@ public actor BETRCoreAgentClient {
 
         let cards = outputIDs.map { outputID in
             let telemetry = outputTelemetryByID[outputID]
-            let usesProofFallback = telemetry == nil && outputID == proofOutputID
+            let usesProofFallback = shouldUseProofBootstrapFallback
             let slotSnapshots = validation?.outputSlots
                 .filter { $0.outputID == outputID }
                 .sorted { $0.slotID < $1.slotID }
                 ?? Self.defaultOutputSlots(for: outputID)
 
             let programSourceID = usesProofFallback
-                ? (validation?.programSourceID ?? telemetry?.activeSourceID)
+                ? (validation?.programSourceID ?? telemetry?.activeSourceID ?? proofOutput?.activeSourceID)
                 : telemetry?.activeSourceID
             let previewSourceID = usesProofFallback
-                ? (validation?.previewSourceID ?? telemetry?.previewSourceID)
+                ? (validation?.previewSourceID ?? telemetry?.previewSourceID ?? proofOutput?.activeSourceID)
                 : telemetry?.previewSourceID
+            let resolvedProgramSlotID = programSourceID.flatMap { sourceID in
+                slotSnapshots.first(where: { $0.sourceID == sourceID })?.slotID
+            }
+            let resolvedPreviewSlotID = previewSourceID.flatMap { sourceID in
+                slotSnapshots.first(where: { $0.sourceID == sourceID })?.slotID
+            }
             let programSlotID = usesProofFallback
-                ? (validation?.programSlotID ?? slotSnapshots.first(where: { $0.sourceID == programSourceID })?.slotID)
-                : slotSnapshots.first(where: { $0.sourceID == programSourceID })?.slotID
+                ? (validation?.programSlotID ?? resolvedProgramSlotID)
+                : resolvedProgramSlotID
             let previewSlotID = usesProofFallback
-                ? (validation?.previewSlotID ?? slotSnapshots.first(where: { $0.sourceID == previewSourceID })?.slotID)
-                : slotSnapshots.first(where: { $0.sourceID == previewSourceID })?.slotID
+                ? (validation?.previewSlotID ?? resolvedPreviewSlotID)
+                : resolvedPreviewSlotID
             let slots = slotSnapshots.map { slot in
                 let sourceID = slot.sourceID
                 return RoomControlOutputSlotState(
@@ -1081,7 +1088,7 @@ public actor BETRCoreAgentClient {
                     sourceName: sourceID.flatMap { sourceNameByID[$0] },
                     isAvailable: Self.slotIsAvailable(
                         sourceID: sourceID,
-                        sourceWarmState: sourceID.flatMap { sourceStateByID[$0] }
+                        hasSourceRecord: sourceID.map { sourceNameByID[$0] != nil || sourceStateByID[$0] != nil } ?? true
                     ),
                     isPreview: previewSlotID == slot.slotID,
                     isProgram: programSlotID == slot.slotID
@@ -1089,17 +1096,17 @@ public actor BETRCoreAgentClient {
             }
 
             let activeSourceState = programSourceID.flatMap { sourceStateByID[$0] }
-            let liveSourceID = telemetry?.activeSourceID ?? (usesProofFallback ? proofOutput?.activeSourceID : nil)
-            let senderReady = telemetry?.senderReady ?? (usesProofFallback ? (proofOutput?.senderReady ?? false) : false)
+            let liveSourceID = usesProofFallback ? (proofOutput?.activeSourceID ?? telemetry?.activeSourceID) : telemetry?.activeSourceID
+            let senderReady = usesProofFallback ? (proofOutput?.senderReady ?? telemetry?.senderReady ?? false) : (telemetry?.senderReady ?? false)
             let livePreviewState: OutputPreviewState
-            if telemetry != nil {
+            if usesProofFallback {
+                livePreviewState = Self.makePreviewState(from: proofOutput)
+            } else if telemetry != nil {
                 if liveSourceID == nil {
                     livePreviewState = .unavailable
                 } else {
                     livePreviewState = senderReady ? .live : .fault
                 }
-            } else if usesProofFallback {
-                livePreviewState = Self.makePreviewState(from: proofOutput)
             } else if liveSourceID == nil {
                 livePreviewState = .unavailable
             } else {
@@ -1107,13 +1114,13 @@ public actor BETRCoreAgentClient {
             }
 
             let audioPresenceState: RoomControlUIContracts.OutputAudioPresenceState
-            if telemetry != nil {
-                audioPresenceState = telemetry?.audioPresenceState.roomControlAudioPresenceState ?? .silent
-            } else if usesProofFallback {
+            if usesProofFallback {
                 audioPresenceState = Self.makeProofAudioPresenceState(
                     proofOutput: proofOutput,
                     activeSourceState: activeSourceState
                 )
+            } else if telemetry != nil {
+                audioPresenceState = telemetry?.audioPresenceState.roomControlAudioPresenceState ?? .silent
             } else {
                 audioPresenceState = telemetry?.audioPresenceState.roomControlAudioPresenceState ?? .silent
             }
@@ -1127,13 +1134,13 @@ public actor BETRCoreAgentClient {
                 audioPresenceState: audioPresenceState,
                 leftLevel: telemetry?.leftLevel ?? 0,
                 rightLevel: telemetry?.rightLevel ?? 0,
-                playoutFaultStageID: outputID == proofOutputID ? proofOutput?.lastPlayoutFaultStage?.rawValue : nil,
-                lastSuccessfulProgramSurfaceSequence: outputID == proofOutputID ? proofOutput?.lastSuccessfulProgramSurfaceSequence : nil
+                playoutFaultStageID: usesProofFallback ? proofOutput?.lastPlayoutFaultStage?.rawValue : nil,
+                lastSuccessfulProgramSurfaceSequence: usesProofFallback ? proofOutput?.lastSuccessfulProgramSurfaceSequence : nil
             )
 
             return RoomControlOutputCardState(
                 id: outputID,
-                title: (usesProofFallback ? proofOutput?.senderName : nil) ?? Self.defaultOutputTitle(for: outputID),
+                title: usesProofFallback ? (proofOutput?.senderName ?? Self.defaultOutputTitle(for: outputID)) : Self.defaultOutputTitle(for: outputID),
                 rasterLabel: telemetry?.videoFormatPreset.rasterLabel
                     ?? (usesProofFallback ? proofOutput?.videoFormatPreset.rasterLabel : nil)
                     ?? BETROutputVideoFormatPreset.default.rasterLabel,
@@ -1781,14 +1788,10 @@ public actor BETRCoreAgentClient {
 
     private static func slotIsAvailable(
         sourceID: String?,
-        sourceWarmState: BETRCoreSourceWarmStateSnapshot?
+        hasSourceRecord: Bool
     ) -> Bool {
         guard sourceID != nil else { return true }
-        guard let sourceWarmState else { return false }
-        return sourceWarmState.warm
-            || sourceWarmState.connected
-            || sourceWarmState.receiverConnected
-            || sourceWarmState.hasVideo
+        return hasSourceRecord
     }
 
     private static func defaultOutputSlots(for outputID: String) -> [BETRCoreOutputSlotSnapshot] {

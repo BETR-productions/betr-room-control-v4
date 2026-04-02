@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIGURATION="debug"
 APP_NAME="BETR Room Control"
 APP_BUNDLE=""
-EXPECTED_MODE=""
+EXPECTED_MODE="embeddedSMAppService"
 STAGED_APP_BUNDLE=""
 BACKUP_APP_BUNDLE=""
 CORE_SUPPORT_DIR="$HOME/Library/Application Support/BETRCoreAgentV3"
@@ -18,7 +18,7 @@ Usage: $(basename "$0") [options]
 Options:
   --configuration <debug|release>   Build artifact configuration. Default: debug
   --app-bundle <path>               Override the app bundle to validate
-  --expected-mode <mode>            Require bootstrap mode to be embeddedSMAppService or embeddedLaunchAgent
+  --expected-mode <mode>            Require bootstrap mode (default: embeddedSMAppService)
   --help                            Show this message
 EOF
 }

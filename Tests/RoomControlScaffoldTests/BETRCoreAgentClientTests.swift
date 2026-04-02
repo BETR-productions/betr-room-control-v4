@@ -59,7 +59,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
 
         XCTAssertEqual(shellState.workspace.cards.count, 1)
         XCTAssertEqual(shellState.workspace.cards.first?.title, "Program Output")
-        XCTAssertEqual(shellState.workspace.cards.first?.programSlotID, "S2")
+        XCTAssertNil(shellState.workspace.cards.first?.programSlotID)
         XCTAssertEqual(shellState.workspace.cards.first?.slots.map(\.id), ["S1", "S2", "S3", "S4", "S5", "S6"])
         XCTAssertEqual(shellState.workspace.sources.count, 2)
     }
@@ -723,7 +723,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(shellState.workspace.cards.last?.previewSlotID, "S1")
     }
 
-    func testBootstrapValidationFallbackKeepsProofOutputForCardsMissingTelemetry() async {
+    func testBootstrapValidationDoesNotUseProofOutputWhenPerOutputDataExists() async {
         let validation = Self.makeValidationSnapshot(
             outputTelemetry: [
                 BETRCoreOutputTelemetrySnapshot(
@@ -756,6 +756,28 @@ final class BETRCoreAgentClientTests: XCTestCase {
         let shellState = await client.bootstrapShellState(rootDirectory: "/tmp/betr-room-control-v4-tests")
 
         XCTAssertEqual(shellState.workspace.cards.map(\.id), ["OUT-1", "OUT-2"])
+        XCTAssertNil(shellState.workspace.cards.first?.programSlotID)
+        XCTAssertNil(shellState.workspace.cards.first?.previewSlotID)
+    }
+
+    func testBootstrapValidationProofFallbackOnlyWhenNoPerOutputDataExists() async {
+        let validation = Self.makeValidationSnapshot(
+            outputTelemetry: [],
+            outputSlots: []
+        )
+
+        let client = BETRCoreAgentClient(
+            operationTimeoutNanoseconds: 50_000_000,
+            workspaceSnapshotProvider: {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                return Self.makeWorkspaceSnapshot()
+            },
+            validationSnapshotProvider: { validation }
+        )
+
+        let shellState = await client.bootstrapShellState(rootDirectory: "/tmp/betr-room-control-v4-tests")
+
+        XCTAssertEqual(shellState.workspace.cards.map(\.id), ["OUT-1"])
         XCTAssertEqual(shellState.workspace.cards.first?.programSlotID, "S2")
         XCTAssertEqual(shellState.workspace.cards.first?.previewSlotID, "S1")
     }
@@ -1373,7 +1395,10 @@ final class BETRCoreAgentClientTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helperURL.path)
         try Data("<plist />".utf8).write(to: plistURL)
 
-        let recorder = CommandRecorder()
+        let recorder = CommandRecorder(
+            forcedLoadedPlistPath: plistURL.path,
+            forcedLoadedExecutablePath: helperURL.path
+        )
         let networkHelperBootstrapper = TestPrivilegedNetworkHelperBootstrapper(
             status: RoomControlPrivilegedNetworkHelperBootstrapStatus(
                 installed: true,
@@ -1409,7 +1434,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertEqual(status.plistPath, generatedPlistURL.path)
         let generatedPlistContents = try String(contentsOf: generatedPlistURL, encoding: .utf8)
         XCTAssertTrue(generatedPlistContents.contains(helperURL.path))
-        XCTAssertEqual(recorder.commands().map(\.arguments.first), ["print", "print", "bootstrap", "print"])
+        XCTAssertEqual(recorder.commands().map(\.arguments.first), ["print", "print", "bootstrap", "print", "print"])
     }
 
     func testCoreAgentBootstrapperClearsStaleBundledAgentOnceAfterUpdate() async throws {
@@ -1435,7 +1460,10 @@ final class BETRCoreAgentClientTests: XCTestCase {
         }
         userDefaults.set("0.9.5.2", forKey: "BETRPreUpdateVersion")
 
-        let recorder = CommandRecorder()
+        let recorder = CommandRecorder(
+            forcedLoadedPlistPath: plistURL.path,
+            forcedLoadedExecutablePath: helperURL.path
+        )
         let networkHelperBootstrapper = TestPrivilegedNetworkHelperBootstrapper(
             status: RoomControlPrivilegedNetworkHelperBootstrapStatus(
                 installed: true,
@@ -1469,7 +1497,7 @@ final class BETRCoreAgentClientTests: XCTestCase {
         XCTAssertTrue(status.note.contains("previous update"))
         XCTAssertEqual(
             recorder.commands().map(\.arguments.first),
-            ["print", "bootout", "print", "bootstrap", "print"]
+            ["print", "bootout", "print", "bootstrap", "print", "print"]
         )
         XCTAssertEqual(userDefaults.string(forKey: "BETRCoreAgentPostUpdateResetVersion"), "0.9.8.52")
     }
@@ -1641,6 +1669,10 @@ final class BETRCoreAgentClientTests: XCTestCase {
         try Data("<plist />".utf8).write(to: plistURL)
 
         let observedSkipInstall = LockedBox(false)
+        let recorder = CommandRecorder(
+            forcedLoadedPlistPath: plistURL.path,
+            forcedLoadedExecutablePath: helperURL.path
+        )
         let bootstrapper = RoomControlCoreAgentBootstrapper(
             environment: [:],
             homeDirectoryURL: temporaryDirectory,
@@ -1658,7 +1690,13 @@ final class BETRCoreAgentClientTests: XCTestCase {
                     observedSkipInstall.value = skipInstallation
                 }
             ),
-            runCommand: { _, _, _ in "" }
+            runCommand: { executable, arguments, currentDirectoryURL in
+                try recorder.record(
+                    executable: executable,
+                    arguments: arguments,
+                    currentDirectoryURL: currentDirectoryURL
+                )
+            }
         )
 
         _ = try await bootstrapper.ensureStarted(skipPrivilegedNetworkHelperInstall: true)
@@ -2005,6 +2043,19 @@ private final class CommandRecorder {
 
     private let lock = NSLock()
     private var recorded: [Command] = []
+    private var loaded = false
+    private var loadedPlistPath: String?
+    private var loadedExecutablePath: String?
+    private let forcedLoadedPlistPath: String?
+    private let forcedLoadedExecutablePath: String?
+
+    init(
+        forcedLoadedPlistPath: String? = nil,
+        forcedLoadedExecutablePath: String? = nil
+    ) {
+        self.forcedLoadedPlistPath = forcedLoadedPlistPath
+        self.forcedLoadedExecutablePath = forcedLoadedExecutablePath
+    }
 
     func record(
         executable: URL,
@@ -2019,12 +2070,43 @@ private final class CommandRecorder {
                 currentDirectoryPath: currentDirectoryURL?.path
             )
         )
-        lock.unlock()
-
-        if arguments.first == "print" {
+        let command = arguments.first
+        switch command {
+        case "print":
+            if loaded {
+                let plistPath = forcedLoadedPlistPath ?? loadedPlistPath ?? "unknown"
+                let executablePath = forcedLoadedExecutablePath ?? loadedExecutablePath ?? "unknown"
+                let output = """
+                service = com.betr.core-agent
+                path = \(plistPath)
+                program = \(executablePath)
+                """
+                lock.unlock()
+                return output
+            }
+            lock.unlock()
             throw RoomControlCoreAgentBootstrapError.commandFailed("not loaded")
+        case "bootstrap":
+            loaded = true
+            if let plistPath = arguments.last {
+                loadedPlistPath = plistPath
+                loadedExecutablePath = Self.programArgumentPath(from: plistPath)
+                if let bundledPlistPath = Self.bundledPlistPath(from: loadedExecutablePath) {
+                    loadedPlistPath = bundledPlistPath
+                }
+            }
+            lock.unlock()
+            return "bootstrapped"
+        case "bootout":
+            loaded = false
+            loadedPlistPath = nil
+            loadedExecutablePath = nil
+            lock.unlock()
+            return ""
+        default:
+            lock.unlock()
+            return ""
         }
-        return arguments.first == "bootstrap" ? "bootstrapped" : ""
     }
 
     func commands() -> [Command] {
@@ -2032,6 +2114,38 @@ private final class CommandRecorder {
         let snapshot = recorded
         lock.unlock()
         return snapshot
+    }
+
+    private static func programArgumentPath(from plistPath: String) -> String? {
+        guard let contents = try? String(contentsOfFile: plistPath, encoding: .utf8),
+              let programArgumentsRange = contents.range(of: "<key>ProgramArguments</key>") else {
+            return nil
+        }
+
+        let tail = contents[programArgumentsRange.upperBound...]
+        guard let openStringRange = tail.range(of: "<string>"),
+              let closeStringRange = tail.range(of: "</string>", range: openStringRange.upperBound..<tail.endIndex) else {
+            return nil
+        }
+        return String(tail[openStringRange.upperBound..<closeStringRange.lowerBound])
+    }
+
+    private static func bundledPlistPath(from executablePath: String?) -> String? {
+        guard let executablePath else { return nil }
+        var directory = URL(fileURLWithPath: executablePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            if directory.lastPathComponent == "Contents" {
+                return directory
+                    .appendingPathComponent("Library/LaunchAgents/com.betr.core-agent.plist")
+                    .path
+            }
+            let parent = directory.deletingLastPathComponent()
+            if parent.path == directory.path {
+                break
+            }
+            directory = parent
+        }
+        return nil
     }
 }
 
