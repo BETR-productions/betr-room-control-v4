@@ -363,6 +363,8 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
         try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helperURL.path)
         try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mainExecutableURL.path)
 
+        let launchctlRecorder = StoreLaunchctlRecorder()
+
         return RoomControlCoreAgentBootstrapper(
             environment: [:],
             homeDirectoryURL: temporaryDirectory,
@@ -371,7 +373,9 @@ final class RoomControlWorkspaceStoreTests: XCTestCase {
             mainBundleVersion: "0.9.8.81",
             userDefaults: userDefaults,
             networkHelperBootstrapper: TestStorePrivilegedNetworkHelperBootstrapper(),
-            runCommand: runCommand ?? { _, _, _ in "" }
+            runCommand: runCommand ?? { executableURL, arguments, currentDirectoryURL in
+                try launchctlRecorder.run(executableURL, arguments, currentDirectoryURL)
+            }
         )
     }
 }
@@ -404,5 +408,81 @@ private struct TestStorePrivilegedNetworkHelperBootstrapper: RoomControlPrivileg
             plistPath: "/Library/LaunchDaemons/com.betr.network-helper.plist",
             note: "noop"
         )
+    }
+}
+
+private final class StoreLaunchctlRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var loaded = false
+    private var loadedPlistPath: String?
+    private var loadedExecutablePath: String?
+
+    func run(_ executableURL: URL, _ arguments: [String], _ currentDirectoryURL: URL?) throws -> String {
+        guard executableURL.path == "/bin/launchctl" else {
+            return ""
+        }
+        guard let command = arguments.first else {
+            return ""
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch command {
+        case "print":
+            guard loaded else {
+                throw RoomControlCoreAgentBootstrapError.commandFailed("service not loaded")
+            }
+            return """
+            service = com.betr.core-agent
+            path = \(loadedPlistPath ?? "unknown")
+            program = \(loadedExecutablePath ?? "unknown")
+            """
+        case "bootstrap":
+            loaded = true
+            if let plistPath = arguments.last {
+                loadedExecutablePath = Self.programArgumentPath(from: plistPath)
+                loadedPlistPath = Self.bundledPlistPath(from: loadedExecutablePath) ?? plistPath
+            }
+            return ""
+        case "bootout":
+            loaded = false
+            loadedPlistPath = nil
+            loadedExecutablePath = nil
+            return ""
+        default:
+            return ""
+        }
+    }
+
+    private static func programArgumentPath(from plistPath: String) -> String? {
+        guard let contents = try? String(contentsOfFile: plistPath, encoding: .utf8),
+              let programArgumentsRange = contents.range(of: "<key>ProgramArguments</key>") else {
+            return nil
+        }
+        let tail = contents[programArgumentsRange.upperBound...]
+        guard let openStringRange = tail.range(of: "<string>"),
+              let closeStringRange = tail.range(of: "</string>", range: openStringRange.upperBound..<tail.endIndex) else {
+            return nil
+        }
+        return String(tail[openStringRange.upperBound..<closeStringRange.lowerBound])
+    }
+
+    private static func bundledPlistPath(from executablePath: String?) -> String? {
+        guard let executablePath else { return nil }
+        var directory = URL(fileURLWithPath: executablePath).deletingLastPathComponent()
+        while directory.path != "/" {
+            if directory.lastPathComponent == "Contents" {
+                return directory
+                    .appendingPathComponent("Library/LaunchAgents/com.betr.core-agent.plist")
+                    .path
+            }
+            let parent = directory.deletingLastPathComponent()
+            if parent.path == directory.path {
+                break
+            }
+            directory = parent
+        }
+        return nil
     }
 }

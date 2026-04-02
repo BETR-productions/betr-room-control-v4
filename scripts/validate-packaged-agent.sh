@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIGURATION="debug"
 APP_NAME="BETR Room Control"
 APP_BUNDLE=""
-EXPECTED_MODE=""
+EXPECTED_MODE="embeddedSMAppService"
 STAGED_APP_BUNDLE=""
 BACKUP_APP_BUNDLE=""
 CORE_SUPPORT_DIR="$HOME/Library/Application Support/BETRCoreAgentV3"
@@ -18,7 +18,7 @@ Usage: $(basename "$0") [options]
 Options:
   --configuration <debug|release>   Build artifact configuration. Default: debug
   --app-bundle <path>               Override the app bundle to validate
-  --expected-mode <mode>            Require bootstrap mode to be embeddedSMAppService or embeddedLaunchAgent
+  --expected-mode <mode>            Require bootstrap mode (default: embeddedSMAppService)
   --help                            Show this message
 EOF
 }
@@ -195,6 +195,7 @@ raw = os.environ["BOOTSTRAP_OUTPUT"]
 app_bundle = os.environ["APP_BUNDLE"]
 helper_path = os.environ["HELPER_PATH"]
 expected_mode = os.environ["EXPECTED_MODE"] or None
+expected_sdk_path = os.path.join(app_bundle, "Contents", "Frameworks", "libndi.dylib")
 
 try:
     payload = json.loads(raw)
@@ -252,12 +253,31 @@ if payload.get("previewTransportReachable") is not True:
     print("ERROR: packaged app did not confirm preview transport reachability.", file=sys.stderr)
     sys.exit(1)
 
+sdk_loaded_path = payload.get("sdkLoadedPath")
+for blocked in ("libndi_advanced.dylib", "/Library/NDI SDK for Apple/", "/usr/local/lib/"):
+    if sdk_loaded_path and blocked in sdk_loaded_path:
+        print(
+            "ERROR: packaged app reported a blocked NDI SDK path.\n"
+            f"Path: {sdk_loaded_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+if sdk_loaded_path != expected_sdk_path:
+    print(
+        "ERROR: packaged app did not report the bundled standard NDI SDK path.\n"
+        f"Expected: {expected_sdk_path}\nGot:      {sdk_loaded_path}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 print("bootstrap mode:", mode)
 print("helper path:", executable_path)
 print("plist path:", plist_path)
 print("outputs seen:", payload.get("outputCount"))
 print("sources seen:", payload.get("sourceCount"))
 print("observed output:", payload.get("observedOutputID"))
+print("sdk path:", sdk_loaded_path)
 print("event observation:", payload.get("eventObservationReady"))
 print("preview transport:", payload.get("previewTransportReachable"))
 status_message = payload.get("statusMessage")

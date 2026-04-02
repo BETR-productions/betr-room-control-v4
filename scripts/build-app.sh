@@ -11,7 +11,7 @@ NETWORK_HELPER_IDENTIFIER="com.betr.network-helper"
 TEAM_ID="Y8WQ4W4L59"
 DEFAULT_DEVELOPER_ID_IDENTITY="Developer ID Application: Joshua Perlman (Y8WQ4W4L59)"
 DEFAULT_DEVELOPER_ID_INSTALLER_IDENTITY="Developer ID Installer: Joshua Perlman (Y8WQ4W4L59)"
-DEFAULT_VERSION=".4.1.1"
+DEFAULT_VERSION=".4.1.2"
 APP_ICON_SOURCE="$PROJECT_DIR/Resources/AppIcon.png"
 ROUND_ICON_SCRIPT="$PROJECT_DIR/scripts/round-icon.swift"
 CONFIGURATION="debug"
@@ -155,7 +155,7 @@ detect_ndi_redist_dir() {
   )
 
   for candidate in "${candidates[@]}"; do
-    if [[ -f "$candidate/libndi.dylib" && -f "$candidate/libndi_advanced.dylib" ]]; then
+    if [[ -f "$candidate/libndi.dylib" ]]; then
       (
         cd "$candidate" >/dev/null 2>&1 && pwd
       )
@@ -405,8 +405,7 @@ copy_ndi_runtime() {
   local destination_dir="$1"
   mkdir -p "$destination_dir"
   cp "$NDI_VENDOR_DIR/libndi.dylib" "$destination_dir/libndi.dylib"
-  cp "$NDI_VENDOR_DIR/libndi_advanced.dylib" "$destination_dir/libndi_advanced.dylib"
-  chmod 755 "$destination_dir/libndi.dylib" "$destination_dir/libndi_advanced.dylib"
+  chmod 755 "$destination_dir/libndi.dylib"
 }
 
 sign_path_if_requested() {
@@ -567,8 +566,8 @@ NDI_VENDOR_LICENSE=""
 ensure_clean_core_checkout
 capture_build_shas
 
-if [[ -z "$NDI_VENDOR_DIR" || ! -f "$NDI_VENDOR_DIR/libndi.dylib" || ! -f "$NDI_VENDOR_DIR/libndi_advanced.dylib" ]]; then
-  echo "ERROR: Could not locate an NDI redistributable folder with libndi.dylib and libndi_advanced.dylib."
+if [[ -z "$NDI_VENDOR_DIR" || ! -f "$NDI_VENDOR_DIR/libndi.dylib" ]]; then
+  echo "ERROR: Could not locate an NDI redistributable folder with libndi.dylib."
   echo "Set BETR_NDI_REDIST_DIR if the active runtime is stored somewhere else."
   exit 1
 fi
@@ -704,7 +703,6 @@ PLIST
 
   xattr -cr "$APP_BUNDLE"
   sign_path_if_requested "$CONTENTS_DIR/Frameworks/libndi.dylib"
-  sign_path_if_requested "$CONTENTS_DIR/Frameworks/libndi_advanced.dylib"
   sign_path_if_requested "$CONTENTS_DIR/Helpers/BETRCoreAgent" "$HELPER_ENTITLEMENTS" "$CORE_AGENT_IDENTIFIER"
   sign_path_if_requested "$CONTENTS_DIR/Helpers/BETRNetworkHelper" "" "$NETWORK_HELPER_IDENTIFIER"
   sign_path_if_requested "$APP_BUNDLE" "$APP_ENTITLEMENTS" "$APP_BUNDLE_ID"
@@ -788,7 +786,6 @@ echo "Embedded BETRNetworkHelper: $CONTENTS_DIR/Helpers/BETRNetworkHelper"
 echo "Embedded LaunchAgent plist: $CONTENTS_DIR/Library/LaunchAgents/com.betr.core-agent.plist"
 echo "Embedded NDI runtime:"
 echo "  - $CONTENTS_DIR/Frameworks/libndi.dylib"
-echo "  - $CONTENTS_DIR/Frameworks/libndi_advanced.dylib"
 if [[ "$CREATE_ZIP" -eq 1 ]]; then
   echo "Updater ZIP: $ZIP_PATH"
 fi

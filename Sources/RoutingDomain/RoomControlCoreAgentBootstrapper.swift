@@ -258,70 +258,128 @@ public actor RoomControlCoreAgentBootstrapper {
         try removeStaleDeveloperLaunchAgentIfNeeded(expectedExecutablePath: executableURL.path)
         let consumedRestartIntent = try consumeManagedAgentRestartIntentIfNeeded(plistName: plistURL.lastPathComponent)
         let resetExistingService = try recyclePostUpdateBundledAgentIfNeeded()
+        let requiresEmbeddedSMAppService = requiresEmbeddedSMAppServiceForBundledRun()
 
-        if #available(macOS 13.0, *) {
-            do {
-                let service = SMAppService.agent(plistName: plistURL.lastPathComponent)
-                try service.register()
-                return RoomControlCoreAgentBootstrapStatus(
-                    mode: .embeddedSMAppService,
-                    executablePath: executableURL.path,
-                    plistPath: plistURL.path,
-                    loaded: true,
-                    note: decoratedNote(
-                        bundledRegistrationNote(
-                            consumedRestartIntent: consumedRestartIntent,
-                            resetExistingService: resetExistingService,
-                            fallbackUsed: false
+        func startBundledAgentRegistration() throws -> RoomControlCoreAgentBootstrapStatus {
+            if #available(macOS 13.0, *) {
+                do {
+                    let service = SMAppService.agent(plistName: plistURL.lastPathComponent)
+                    try service.register()
+                    return RoomControlCoreAgentBootstrapStatus(
+                        mode: .embeddedSMAppService,
+                        executablePath: executableURL.path,
+                        plistPath: plistURL.path,
+                        loaded: true,
+                        note: decoratedNote(
+                            bundledRegistrationNote(
+                                consumedRestartIntent: consumedRestartIntent,
+                                resetExistingService: resetExistingService,
+                                fallbackUsed: false
+                            ),
+                            networkHelperNote: networkHelperNote
                         ),
-                        networkHelperNote: networkHelperNote
-                    ),
-                    consumedRestartIntent: consumedRestartIntent
-                )
-            } catch {
-                let status = try ensureLaunchAgentStarted(
-                    plistURL: launchAgentPlistURL(),
-                    plistContents: launchAgentPlistContents(agentExecutableURL: executableURL),
-                    executablePath: executableURL.path
-                )
-                return RoomControlCoreAgentBootstrapStatus(
-                    mode: .embeddedLaunchAgent,
-                    executablePath: status.executablePath,
-                    plistPath: status.plistPath,
-                    loaded: status.loaded,
-                    note: decoratedNote(
-                        bundledRegistrationNote(
-                            consumedRestartIntent: consumedRestartIntent,
-                            resetExistingService: resetExistingService,
-                            fallbackUsed: true
+                        consumedRestartIntent: consumedRestartIntent
+                    )
+                } catch {
+                    let status = try ensureLaunchAgentStarted(
+                        plistURL: launchAgentPlistURL(),
+                        plistContents: launchAgentPlistContents(agentExecutableURL: executableURL),
+                        executablePath: executableURL.path
+                    )
+                    return RoomControlCoreAgentBootstrapStatus(
+                        mode: .embeddedLaunchAgent,
+                        executablePath: status.executablePath,
+                        plistPath: status.plistPath,
+                        loaded: status.loaded,
+                        note: decoratedNote(
+                            bundledRegistrationNote(
+                                consumedRestartIntent: consumedRestartIntent,
+                                resetExistingService: resetExistingService,
+                                fallbackUsed: true
+                            ),
+                            networkHelperNote: networkHelperNote
                         ),
-                        networkHelperNote: networkHelperNote
+                        consumedRestartIntent: consumedRestartIntent
+                    )
+                }
+            }
+
+            let status = try ensureLaunchAgentStarted(
+                plistURL: launchAgentPlistURL(),
+                plistContents: launchAgentPlistContents(agentExecutableURL: executableURL),
+                executablePath: executableURL.path
+            )
+            return RoomControlCoreAgentBootstrapStatus(
+                mode: .embeddedLaunchAgent,
+                executablePath: status.executablePath,
+                plistPath: status.plistPath,
+                loaded: status.loaded,
+                note: decoratedNote(
+                    bundledRegistrationNote(
+                        consumedRestartIntent: consumedRestartIntent,
+                        resetExistingService: resetExistingService,
+                        fallbackUsed: true
                     ),
-                    consumedRestartIntent: consumedRestartIntent
+                    networkHelperNote: networkHelperNote
+                ),
+                consumedRestartIntent: consumedRestartIntent
+            )
+        }
+
+        func statusWithWiringVerification(_ status: RoomControlCoreAgentBootstrapStatus) -> RoomControlCoreAgentBootstrapStatus {
+            RoomControlCoreAgentBootstrapStatus(
+                mode: status.mode,
+                executablePath: status.executablePath,
+                plistPath: status.plistPath,
+                loaded: status.loaded,
+                note: "\(status.note) Verified the active launchd service wiring against the bundled helper and plist paths.",
+                consumedRestartIntent: status.consumedRestartIntent
+            )
+        }
+
+        var status = try startBundledAgentRegistration()
+        if requiresEmbeddedSMAppService, status.mode != .embeddedSMAppService {
+            roomControlCoreAgentBootstrapLogger.error(
+                "Bundled BETRCoreAgent bootstrapped with non-SM mode; recycling registration once. mode=\(status.mode.rawValue, privacy: .public)"
+            )
+            clearBundledServiceRegistration(plistName: plistURL.lastPathComponent)
+            status = try startBundledAgentRegistration()
+            if status.mode != .embeddedSMAppService {
+                throw RoomControlCoreAgentBootstrapError.commandFailed(
+                    "BETRCoreAgent bundled startup must resolve to embeddedSMAppService. got=\(status.mode.rawValue)"
+                )
+            }
+        }
+        if let mismatch = bundledServiceWiringMismatchReason(
+            expectedPlistPath: plistURL.path,
+            expectedExecutablePath: executableURL.path
+        ) {
+            roomControlCoreAgentBootstrapLogger.error(
+                "Bundled BETRCoreAgent wiring mismatch detected; recycling registration once. reason=\(mismatch, privacy: .public)"
+            )
+            clearBundledServiceRegistration(plistName: plistURL.lastPathComponent)
+            status = try startBundledAgentRegistration()
+            if let retryMismatch = bundledServiceWiringMismatchReason(
+                expectedPlistPath: plistURL.path,
+                expectedExecutablePath: executableURL.path
+            ) {
+                throw RoomControlCoreAgentBootstrapError.commandFailed(
+                    "BETRCoreAgent launchd wiring mismatch after re-register: \(retryMismatch)"
                 )
             }
         }
 
-        let status = try ensureLaunchAgentStarted(
-            plistURL: launchAgentPlistURL(),
-            plistContents: launchAgentPlistContents(agentExecutableURL: executableURL),
-            executablePath: executableURL.path
-        )
-        return RoomControlCoreAgentBootstrapStatus(
-            mode: .embeddedLaunchAgent,
-            executablePath: status.executablePath,
-            plistPath: status.plistPath,
-            loaded: status.loaded,
-            note: decoratedNote(
-                bundledRegistrationNote(
-                    consumedRestartIntent: consumedRestartIntent,
-                    resetExistingService: resetExistingService,
-                    fallbackUsed: true
-                ),
-                networkHelperNote: networkHelperNote
-            ),
-            consumedRestartIntent: consumedRestartIntent
-        )
+        return statusWithWiringVerification(status)
+    }
+
+    private func requiresEmbeddedSMAppServiceForBundledRun() -> Bool {
+        if let override = Self.trimmedValue(environment["BETR_ROOM_CONTROL_REQUIRE_EMBEDDED_SMAPP_SERVICE"]) {
+            return Self.environmentFlagValue(override)
+        }
+        if let bootstrapCheck = Self.trimmedValue(environment["BETR_ROOM_CONTROL_BOOTSTRAP_CHECK"]) {
+            return Self.environmentFlagValue(bootstrapCheck)
+        }
+        return false
     }
 
     private func decoratedNote(
@@ -454,6 +512,39 @@ public actor RoomControlCoreAgentBootstrapper {
            loadedDescription.contains(expectedExecutablePath) == false {
             _ = try? launchctl(["bootout", launchDomainLabel()])
         }
+    }
+
+    private func clearBundledServiceRegistration(plistName: String) {
+        if #available(macOS 13.0, *) {
+            let service = SMAppService.agent(plistName: plistName)
+            try? service.unregister()
+        }
+        _ = try? launchctl(["bootout", launchDomainLabel()])
+    }
+
+    private func bundledServiceWiringMismatchReason(
+        expectedPlistPath: String,
+        expectedExecutablePath: String
+    ) -> String? {
+        guard let output = try? launchctl(["print", launchDomainLabel()]) else {
+            return "launchctl print could not read \(launchDomainLabel())"
+        }
+
+        let normalizedOutput = output.lowercased()
+        let expectedLabel = Self.launchAgentLabel.lowercased()
+        if normalizedOutput.contains(expectedLabel) == false {
+            return "loaded service label did not include \(Self.launchAgentLabel)"
+        }
+
+        if normalizedOutput.contains(expectedPlistPath.lowercased()) == false {
+            return "loaded plist path did not match \(expectedPlistPath)"
+        }
+
+        if normalizedOutput.contains(expectedExecutablePath.lowercased()) == false {
+            return "loaded executable path did not match \(expectedExecutablePath)"
+        }
+
+        return nil
     }
 
     private func recyclePostUpdateBundledAgentIfNeeded() throws -> Bool {
@@ -622,6 +713,17 @@ public actor RoomControlCoreAgentBootstrapper {
             return nil
         }
         return value
+    }
+
+    private static func environmentFlagValue(_ rawValue: String) -> Bool {
+        switch rawValue.lowercased() {
+        case "1", "true", "yes", "y", "on":
+            return true
+        case "0", "false", "no", "n", "off":
+            return false
+        default:
+            return false
+        }
     }
 
     private func isLaunchAgentLoaded() -> Bool {

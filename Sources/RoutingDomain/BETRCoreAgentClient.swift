@@ -127,6 +127,49 @@ public actor BETRCoreAgentClient {
         return snapshot.map(Self.makeDiscoveryDebugSnapshot)
     }
 
+    public func waitForDiscoveryDebugSnapshot(
+        maxAttempts: Int = 20,
+        retryIntervalNanoseconds: UInt64 = 500_000_000,
+        requestTimeoutNanoseconds: UInt64 = 20_000_000_000,
+        requireSDKLoadedPath: Bool = false
+    ) async throws -> NDIWizardDiscoveryDebugSnapshot {
+        precondition(maxAttempts > 0, "maxAttempts must be positive")
+
+        var lastError: Error?
+        var lastSnapshot: BETRCoreDiscoveryDebugSnapshotResponse?
+
+        for attempt in 1...maxAttempts {
+            do {
+                let snapshot = try await loadDiscoveryDebugSnapshot(timeoutNanoseconds: requestTimeoutNanoseconds)
+                if requireSDKLoadedPath == false || snapshot.sdkLoadedPath?.isEmpty == false {
+                    return Self.makeDiscoveryDebugSnapshot(snapshot)
+                }
+                lastSnapshot = snapshot
+                lastError = nil
+            } catch {
+                lastError = error
+                invalidateConnection()
+            }
+
+            guard attempt < maxAttempts else { break }
+            try await Task.sleep(nanoseconds: retryIntervalNanoseconds)
+        }
+
+        if requireSDKLoadedPath == false, let lastSnapshot {
+            return Self.makeDiscoveryDebugSnapshot(lastSnapshot)
+        }
+
+        if lastSnapshot != nil {
+            throw BETRCoreAgentClientError.xpcUnavailable(
+                "BETRCoreAgent did not report a loaded NDI SDK path."
+            )
+        }
+
+        throw lastError ?? BETRCoreAgentClientError.xpcUnavailable(
+            "BETRCoreAgent did not report a loaded NDI SDK path."
+        )
+    }
+
     public func refreshHostInterfaceInventory(rootDirectory: String) async throws -> FeatureShellState {
         let response = try await send(.refreshHostInterfaceInventory)
         guard case let .workspace(workspace) = response else {
@@ -479,14 +522,22 @@ public actor BETRCoreAgentClient {
         return snapshot
     }
 
-    private func loadDiscoveryDebugSnapshot() async throws -> BETRCoreDiscoveryDebugSnapshotResponse {
+    private func loadDiscoveryDebugSnapshot(
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> BETRCoreDiscoveryDebugSnapshotResponse {
         if let discoveryDebugSnapshotProvider {
-            return try await performTimedOperation("loading discovery debug state") {
+            return try await performTimedOperation(
+                "loading discovery debug state",
+                timeoutNanoseconds: timeoutNanoseconds
+            ) {
                 try await discoveryDebugSnapshotProvider()
             }
         }
 
-        let response = try await send(.requestDiscoveryDebugSnapshot)
+        let response = try await send(
+            .requestDiscoveryDebugSnapshot,
+            timeoutNanosecondsOverride: timeoutNanoseconds
+        )
         guard case let .discoveryDebug(snapshot) = response else {
             throw BETRCoreAgentClientError.malformedResponse
         }
@@ -993,30 +1044,41 @@ public actor BETRCoreAgentClient {
         let outputIDCandidates = Set(
             (validation?.outputSlots.map(\.outputID) ?? [])
                 + (validation?.outputTelemetry.map(\.id) ?? [])
-                + (proofOutputID.map { [$0] } ?? [])
         )
-        let outputIDs = outputIDCandidates.isEmpty ? ["OUT-1"] : outputIDCandidates.sorted()
+        let shouldUseProofBootstrapFallback = outputIDCandidates.isEmpty
+        let outputIDs: [String]
+        if shouldUseProofBootstrapFallback {
+            outputIDs = [proofOutputID ?? "OUT-1"]
+        } else {
+            outputIDs = outputIDCandidates.sorted()
+        }
 
         let cards = outputIDs.map { outputID in
             let telemetry = outputTelemetryByID[outputID]
-            let isProofOutput = outputID == proofOutputID
+            let usesProofFallback = shouldUseProofBootstrapFallback
             let slotSnapshots = validation?.outputSlots
                 .filter { $0.outputID == outputID }
                 .sorted { $0.slotID < $1.slotID }
                 ?? Self.defaultOutputSlots(for: outputID)
 
-            let programSourceID = isProofOutput
-                ? (validation?.programSourceID ?? telemetry?.activeSourceID)
+            let programSourceID = usesProofFallback
+                ? (validation?.programSourceID ?? telemetry?.activeSourceID ?? proofOutput?.activeSourceID)
                 : telemetry?.activeSourceID
-            let previewSourceID = isProofOutput
-                ? (validation?.previewSourceID ?? telemetry?.previewSourceID)
+            let previewSourceID = usesProofFallback
+                ? (validation?.previewSourceID ?? telemetry?.previewSourceID ?? proofOutput?.activeSourceID)
                 : telemetry?.previewSourceID
-            let programSlotID = isProofOutput
-                ? (validation?.programSlotID ?? slotSnapshots.first(where: { $0.sourceID == programSourceID })?.slotID)
-                : slotSnapshots.first(where: { $0.sourceID == programSourceID })?.slotID
-            let previewSlotID = isProofOutput
-                ? (validation?.previewSlotID ?? slotSnapshots.first(where: { $0.sourceID == previewSourceID })?.slotID)
-                : slotSnapshots.first(where: { $0.sourceID == previewSourceID })?.slotID
+            let resolvedProgramSlotID = programSourceID.flatMap { sourceID in
+                slotSnapshots.first(where: { $0.sourceID == sourceID })?.slotID
+            }
+            let resolvedPreviewSlotID = previewSourceID.flatMap { sourceID in
+                slotSnapshots.first(where: { $0.sourceID == sourceID })?.slotID
+            }
+            let programSlotID = usesProofFallback
+                ? (validation?.programSlotID ?? resolvedProgramSlotID)
+                : resolvedProgramSlotID
+            let previewSlotID = usesProofFallback
+                ? (validation?.previewSlotID ?? resolvedPreviewSlotID)
+                : resolvedPreviewSlotID
             let slots = slotSnapshots.map { slot in
                 let sourceID = slot.sourceID
                 return RoomControlOutputSlotState(
@@ -1026,7 +1088,7 @@ public actor BETRCoreAgentClient {
                     sourceName: sourceID.flatMap { sourceNameByID[$0] },
                     isAvailable: Self.slotIsAvailable(
                         sourceID: sourceID,
-                        sourceWarmState: sourceID.flatMap { sourceStateByID[$0] }
+                        hasSourceRecord: sourceID.map { sourceNameByID[$0] != nil || sourceStateByID[$0] != nil } ?? true
                     ),
                     isPreview: previewSlotID == slot.slotID,
                     isProgram: programSlotID == slot.slotID
@@ -1034,11 +1096,17 @@ public actor BETRCoreAgentClient {
             }
 
             let activeSourceState = programSourceID.flatMap { sourceStateByID[$0] }
-            let liveSourceID = telemetry?.activeSourceID ?? (isProofOutput ? proofOutput?.activeSourceID : nil)
-            let senderReady = telemetry?.senderReady ?? (isProofOutput ? (proofOutput?.senderReady ?? false) : false)
+            let liveSourceID = usesProofFallback ? (proofOutput?.activeSourceID ?? telemetry?.activeSourceID) : telemetry?.activeSourceID
+            let senderReady = usesProofFallback ? (proofOutput?.senderReady ?? telemetry?.senderReady ?? false) : (telemetry?.senderReady ?? false)
             let livePreviewState: OutputPreviewState
-            if isProofOutput {
+            if usesProofFallback {
                 livePreviewState = Self.makePreviewState(from: proofOutput)
+            } else if telemetry != nil {
+                if liveSourceID == nil {
+                    livePreviewState = .unavailable
+                } else {
+                    livePreviewState = senderReady ? .live : .fault
+                }
             } else if liveSourceID == nil {
                 livePreviewState = .unavailable
             } else {
@@ -1046,40 +1114,41 @@ public actor BETRCoreAgentClient {
             }
 
             let audioPresenceState: RoomControlUIContracts.OutputAudioPresenceState
-            if isProofOutput {
+            if usesProofFallback {
                 audioPresenceState = Self.makeProofAudioPresenceState(
                     proofOutput: proofOutput,
                     activeSourceState: activeSourceState
                 )
+            } else if telemetry != nil {
+                audioPresenceState = telemetry?.audioPresenceState.roomControlAudioPresenceState ?? .silent
             } else {
                 audioPresenceState = telemetry?.audioPresenceState.roomControlAudioPresenceState ?? .silent
             }
 
             let selectedSourceFormatLabel = activeSourceState.flatMap(Self.makeSourceFormatLabel)
-            let pendingProgramReady = telemetry?.pendingProgramReady ?? (isProofOutput ? (proofOutput?.pendingProgramReady ?? false) : false)
-            let previewSourceReady = telemetry?.previewSourceSyncReady
-                ?? (isProofOutput ? (previewSourceID.flatMap { sourceStateByID[$0]?.warm } ?? false) : false)
+            let pendingProgramReady = telemetry?.pendingProgramReady ?? (usesProofFallback ? (proofOutput?.pendingProgramReady ?? false) : false)
+            let previewSourceReady = telemetry?.previewSourceSyncReady ?? false
             let liveTile = OutputLiveTileModel(
                 sourceID: liveSourceID,
                 previewState: livePreviewState,
                 audioPresenceState: audioPresenceState,
                 leftLevel: telemetry?.leftLevel ?? 0,
                 rightLevel: telemetry?.rightLevel ?? 0,
-                playoutFaultStageID: isProofOutput ? proofOutput?.lastPlayoutFaultStage?.rawValue : nil,
-                lastSuccessfulProgramSurfaceSequence: isProofOutput ? proofOutput?.lastSuccessfulProgramSurfaceSequence : nil
+                playoutFaultStageID: usesProofFallback ? proofOutput?.lastPlayoutFaultStage?.rawValue : nil,
+                lastSuccessfulProgramSurfaceSequence: usesProofFallback ? proofOutput?.lastSuccessfulProgramSurfaceSequence : nil
             )
 
             return RoomControlOutputCardState(
                 id: outputID,
-                title: (isProofOutput ? proofOutput?.senderName : nil) ?? Self.defaultOutputTitle(for: outputID),
+                title: usesProofFallback ? (proofOutput?.senderName ?? Self.defaultOutputTitle(for: outputID)) : Self.defaultOutputTitle(for: outputID),
                 rasterLabel: telemetry?.videoFormatPreset.rasterLabel
-                    ?? (isProofOutput ? proofOutput?.videoFormatPreset.rasterLabel : nil)
+                    ?? (usesProofFallback ? proofOutput?.videoFormatPreset.rasterLabel : nil)
                     ?? BETROutputVideoFormatPreset.default.rasterLabel,
                 videoFormatPresetID: telemetry?.videoFormatPreset.rawValue
-                    ?? (isProofOutput ? proofOutput?.videoFormatPreset.rawValue : nil)
+                    ?? (usesProofFallback ? proofOutput?.videoFormatPreset.rawValue : nil)
                     ?? BETROutputVideoFormatPreset.default.rawValue,
                 listenerCount: telemetry?.senderConnectionCount
-                    ?? (isProofOutput ? proofOutput?.senderConnectionCount : nil)
+                    ?? (usesProofFallback ? proofOutput?.senderConnectionCount : nil)
                     ?? 0,
                 slots: slots,
                 programSlotID: programSlotID,
@@ -1719,14 +1788,10 @@ public actor BETRCoreAgentClient {
 
     private static func slotIsAvailable(
         sourceID: String?,
-        sourceWarmState: BETRCoreSourceWarmStateSnapshot?
+        hasSourceRecord: Bool
     ) -> Bool {
         guard sourceID != nil else { return true }
-        guard let sourceWarmState else { return false }
-        return sourceWarmState.warm
-            || sourceWarmState.connected
-            || sourceWarmState.receiverConnected
-            || sourceWarmState.hasVideo
+        return hasSourceRecord
     }
 
     private static func defaultOutputSlots(for outputID: String) -> [BETRCoreOutputSlotSnapshot] {
