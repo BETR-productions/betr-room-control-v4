@@ -536,11 +536,31 @@ public actor RoomControlCoreAgentBootstrapper {
             return "loaded service label did not include \(Self.launchAgentLabel)"
         }
 
-        if normalizedOutput.contains(expectedPlistPath.lowercased()) == false {
+        // SMAppService launchctl output does not always expose absolute plist/program paths.
+        // In that mode, verify the authoritative bundle binding fields instead.
+        if normalizedOutput.contains("managed_by = com.apple.xpc.servicemanagement") {
+            let expectedBundleIdentifier = "parent bundle identifier = com.betr.room-control"
+            if normalizedOutput.contains(expectedBundleIdentifier) == false {
+                return "loaded service did not report bundled parent identifier com.betr.room-control"
+            }
+            let expectedProgramIdentifier = "program identifier = contents/helpers/\(Self.agentExecutableName.lowercased())"
+            if normalizedOutput.contains(expectedProgramIdentifier) == false {
+                return "loaded service did not report bundled program identifier Contents/Helpers/\(Self.agentExecutableName)"
+            }
+            return nil
+        }
+
+        let normalizedExpectedPlistPath = expectedPlistPath.lowercased()
+        let escapedExpectedPlistPath = normalizedExpectedPlistPath.replacingOccurrences(of: " ", with: "\\ ")
+        if normalizedOutput.contains(normalizedExpectedPlistPath) == false
+            && normalizedOutput.contains(escapedExpectedPlistPath) == false {
             return "loaded plist path did not match \(expectedPlistPath)"
         }
 
-        if normalizedOutput.contains(expectedExecutablePath.lowercased()) == false {
+        let normalizedExpectedExecutablePath = expectedExecutablePath.lowercased()
+        let escapedExpectedExecutablePath = normalizedExpectedExecutablePath.replacingOccurrences(of: " ", with: "\\ ")
+        if normalizedOutput.contains(normalizedExpectedExecutablePath) == false
+            && normalizedOutput.contains(escapedExpectedExecutablePath) == false {
             return "loaded executable path did not match \(expectedExecutablePath)"
         }
 
