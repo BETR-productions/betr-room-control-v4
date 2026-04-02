@@ -16,7 +16,7 @@
 - Repo truth: complete
 - Local packaged release truth: complete
 - Real test machine acceptance: pending
-- Merge/publish: blocked until main preflight/CodeRabbit review is clean and the signed + notarized + stapled `0.4.1.2` artifact passes first-launch and persisted-host-profile relaunch on the real test machine
+- Merge/publish: blocked until main preflight/CodeRabbit review is clean and the signed + notarized + stapled `0.4.1.3` artifact passes first-launch and persisted-host-profile relaunch on the real test machine
 
 ## Wave Status
 
